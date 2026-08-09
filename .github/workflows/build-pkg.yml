@@ -58,7 +58,7 @@ jobs:
                    --scripts build/scripts \
                    --identifier "es.mi-labs.soar.agent" \
                    --version "1.0.0" \
-                   --install-loc "/" \
+                   --install-location "/" \
                    Applivery-SOAR-Agent.pkg
 
       - name: Upload Artifact
