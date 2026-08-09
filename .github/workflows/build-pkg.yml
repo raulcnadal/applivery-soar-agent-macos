@@ -7,6 +7,12 @@ on:
     branches: [ "main", "master" ]
   workflow_dispatch:
 
+# Needed for the release step below to publish/update the "latest" tag's
+# GitHub Release via the workflow's own auto-issued GITHUB_TOKEN — no PAT
+# required for same-repo release publishing.
+permissions:
+  contents: write
+
 jobs:
   build-pkg:
     runs-on: macos-latest
@@ -20,13 +26,22 @@ jobs:
         with:
           go-version: '1.21'
 
-      - name: Build Binary
+      - name: Build Binary (universal — arm64 + amd64)
         run: |
           mkdir -p build/payload/usr/local/bin
           mkdir -p build/payload/Library/LaunchDaemons
-          
-          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o build/payload/usr/local/bin/applivery-soar-agent main.go config.go telemetry_macos.go security_macos.go apps_macos.go
-          
+
+          # Build both architectures separately, then lipo them into one
+          # universal binary — this Mac's own agent needs to run on both
+          # Apple Silicon and Intel Macs without a separate .pkg per arch,
+          # unlike the Windows agent (Windows doesn't have an equivalent to
+          # lipo, so that repo ships two separate MSIs instead).
+          SRC="main.go config.go telemetry_macos.go security_macos.go apps_macos.go"
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o build/agent-arm64 $SRC
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -o build/agent-amd64 $SRC
+          lipo -create -output build/payload/usr/local/bin/applivery-soar-agent build/agent-arm64 build/agent-amd64
+          lipo -info build/payload/usr/local/bin/applivery-soar-agent
+
           # Copy the LaunchDaemon plist into the package payload
           cp es.mi-labs.soar.agent.plist build/payload/Library/LaunchDaemons/es.mi-labs.soar.agent.plist
 
@@ -66,3 +81,21 @@ jobs:
         with:
           name: Applivery-SOAR-Agent-pkg
           path: Applivery-SOAR-Agent.pkg
+
+      # Rolling "latest" GitHub Release, same tag reused on every push to
+      # main — same pattern as applivery-soar's own docker-publish.yml
+      # :latest tag, and the Windows agent repo's build.yml. This repo is
+      # private, so the migrated SOAR app's Settings > Device Data Webhook
+      # page proxies this release's asset through its own backend (needs a
+      # read-scoped GitHub token, configured there) rather than linking to
+      # github.com directly. PR builds only run the steps above (artifact
+      # upload, for review) — only pushes to main publish a release.
+      - name: Publish latest release
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest build
+          body: Automated build from ${{ github.sha }}
+          make_latest: true
+          files: Applivery-SOAR-Agent.pkg
