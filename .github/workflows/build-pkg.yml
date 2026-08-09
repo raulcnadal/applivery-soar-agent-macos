@@ -90,6 +90,31 @@ jobs:
           name: Applivery-SOAR-Agent-pkg
           path: Applivery-SOAR-Agent.pkg
 
+      # Publish the universal .pkg to the SOAR backend's own zero-config
+      # download endpoint (POST /api/internal/agent-builds/macos) — same
+      # mechanism and reasoning as the Windows agent repo's own build.yml
+      # ("Publish x64 MSI to SOAR backend" step): lets a customer download
+      # the agent from Settings > Device Data Webhook with no GitHub token,
+      # same idea as this app's own public Docker images. Requires the
+      # SOAR_AGENT_BUILD_SECRET repo secret, matching AGENT_BUILD_INGEST_SECRET
+      # on the backend deployment. Runs on push to main only.
+      - name: Publish .pkg to SOAR backend
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        env:
+          SOAR_BASE_URL: ${{ vars.SOAR_BASE_URL || 'https://soar.mi-labs.es' }}
+          SOAR_AGENT_BUILD_SECRET: ${{ secrets.SOAR_AGENT_BUILD_SECRET }}
+        run: |
+          if [ -z "$SOAR_AGENT_BUILD_SECRET" ]; then
+            echo "SOAR_AGENT_BUILD_SECRET is not set on this repo — skipping zero-config publish (the GitHub Release below still publishes normally)."
+            exit 0
+          fi
+          curl --fail-with-body -sS -X POST "$SOAR_BASE_URL/api/internal/agent-builds/macos" \
+            -H "X-Agent-Build-Secret: $SOAR_AGENT_BUILD_SECRET" \
+            -H "X-Agent-Filename: Applivery-SOAR-Agent.pkg" \
+            -H "X-Agent-Content-Type: application/vnd.apple.installer+xml" \
+            -H "X-Agent-Version: ${{ github.sha }}" \
+            --data-binary @Applivery-SOAR-Agent.pkg
+
       # Rolling "latest" GitHub Release, same tag reused on every push to
       # main — same pattern as applivery-soar's own docker-publish.yml
       # :latest tag, and the Windows agent repo's build.yml. This repo is
