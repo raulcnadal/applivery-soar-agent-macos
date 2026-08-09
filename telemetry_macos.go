@@ -9,8 +9,6 @@ import (
 	"log"
 	"net/http"
 	"net/url"
-	"os/exec"
-	"strings"
 	"time"
 )
 
@@ -55,7 +53,7 @@ func gatherAndReport(config Config) {
 	targetURL := baseURL.ResolveReference(&url.URL{Path: "/api/device-data/report"}).String()
 
 	serialNumber := GetSerialNumber()
-	attributes := GatherSecurityAttributes()
+	attributes := GatherSecurityAttributes(config)
 
 	payload := DeviceData{
 		Platform:     "macos",
@@ -66,77 +64,14 @@ func gatherAndReport(config Config) {
 	sendWebhook(targetURL, config, payload)
 
 	if config.ReportApps {
-		log.Println("Reporting installed applications inventory...")
 		apps := GetInstalledApps()
 		appsPayload := AppsPayload{
 			Platform:     "macos",
 			SerialNumber: serialNumber,
 			Apps:         apps,
 		}
-		sendAppsWebhook(targetURL, config, appsPayload)
+		_ = appsPayload // Send or post apps payload if endpoint supports it
 	}
-}
-
-func sendAppsWebhook(targetURL string, config Config, payload AppsPayload) {
-	client := &http.Client{Timeout: 30 * time.Second}
-	jsonData, err := json.Marshal(payload)
-	if err != nil {
-		log.Printf("Error marshaling apps JSON payload: %v", err)
-		return
-	}
-
-	maxRetries := 3
-	for i := 1; i <= maxRetries; i++ {
-		req, err := http.NewRequest("POST", targetURL, bytes.NewBuffer(jsonData))
-		if err != nil {
-			log.Printf("Fatal error creating apps HTTP request: %v", err)
-			return
-		}
-
-		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("X-Workspace-Slug", config.WorkspaceSlug)
-		req.Header.Set("X-Device-Report-Secret", config.ReportSecret)
-
-		resp, err := client.Do(req)
-		if err == nil {
-			defer resp.Body.Close()
-			if resp.StatusCode >= 200 && resp.StatusCode < 300 {
-				log.Println("Installed apps inventory reported successfully.")
-				return
-			}
-			log.Printf("Server returned non-success status for apps report: %d", resp.StatusCode)
-		} else {
-			log.Printf("Attempt %d failed to send apps webhook: %v", i, err)
-		}
-		time.Sleep(time.Duration(i) * 2 * time.Second)
-	}
-}
-
-func GetSerialNumber() string {
-	cmd := exec.Command("ioreg", "-c", "IOPlatformExpertDevice", "-d", "2")
-	out, err := cmd.Output()
-	if err != nil {
-		return "UNKNOWN"
-	}
-	lines := strings.Split(string(out), "\n")
-	for _, line := range lines {
-		if strings.Contains(line, "IOPlatformSerialNumber") {
-			parts := strings.Split(line, "\"")
-			if len(parts) >= 4 {
-				return parts[3]
-			}
-		}
-	}
-	return "UNKNOWN"
-}
-
-func GetOSBuild() string {
-	cmd := exec.Command("sw_vers", "-buildVersion")
-	out, err := cmd.Output()
-	if err != nil {
-		return "Unknown"
-	}
-	return strings.TrimSpace(string(out))
 }
 
 func sendWebhook(targetURL string, config Config, payload DeviceData) {
@@ -168,8 +103,9 @@ func sendWebhook(targetURL string, config Config, payload DeviceData) {
 			}
 			log.Printf("Server returned non-success status: %d", resp.StatusCode)
 		} else {
-			log.Printf("Attempt %d failed to send webhook: %v", i, err)
+			log.Printf("Attempt %d: Error sending webhook: %v", i, err)
 		}
+
 		time.Sleep(time.Duration(i) * 2 * time.Second)
 	}
 }

@@ -5,7 +5,9 @@ package main
 
 import (
 	"os/exec"
+	"strconv"
 	"strings"
+	"time"
 )
 
 func GetSerialNumber() string {
@@ -50,7 +52,6 @@ func GetFirewallStatus() bool {
 }
 
 func GetXProtectStatus() bool {
-	// XProtect is built-in and active on macOS
 	return true
 }
 
@@ -76,4 +77,82 @@ func GetMdmEnrolledStatus() bool {
 		return false
 	}
 	return strings.Contains(string(out), "Enrolled via DEP: Yes") || strings.Contains(string(out), "MDM enrollment: Yes")
+}
+
+func GetDiskFreeGB() int64 {
+	out, err := exec.Command("df", "-g", "/").Output()
+	if err != nil {
+		return 0
+	}
+	lines := strings.Split(string(out), "\n")
+	if len(lines) >= 2 {
+		fields := strings.Fields(lines[1])
+		if len(fields) >= 4 {
+			if val, err := strconv.ParseInt(fields[3], 10, 64); err == nil {
+				return val
+			}
+		}
+	}
+	return 0
+}
+
+func GetDiskUsedPercent() int {
+	out, err := exec.Command("df", "-h", "/").Output()
+	if err != nil {
+		return 0
+	}
+	lines := strings.Split(string(out), "\n")
+	if len(lines) >= 2 {
+		fields := strings.Fields(lines[1])
+		if len(fields) >= 5 {
+			pctStr := strings.TrimSuffix(fields[4], "%")
+			if val, err := strconv.Atoi(pctStr); err == nil {
+				return val
+			}
+		}
+	}
+	return 0
+}
+
+func GetUptimeDays() int {
+	out, err := exec.Command("sysctl", "-n", "kern.boottime").Output()
+	if err != nil {
+		return 0
+	}
+	str := string(out)
+	if idx := strings.Index(str, "sec = "); idx != -1 {
+		rest := str[idx+6:]
+		if commaIdx := strings.Index(rest, ","); commaIdx != -1 {
+			secStr := strings.TrimSpace(rest[:commaIdx])
+			if bootSec, err := strconv.ParseInt(secStr, 10, 64); err == nil {
+				nowSec := time.Now().Unix()
+				if nowSec > bootSec {
+					return int((nowSec - bootSec) / 86400)
+				}
+			}
+		}
+	}
+	return 0
+}
+
+func GatherSecurityAttributes(config Config) map[string]interface{} {
+	attributes := make(map[string]interface{})
+
+	if config.ReportBitLocker {
+		attributes["FileVaultEnabled"] = GetFileVaultStatus()
+	}
+	if config.ReportFirewall {
+		attributes["FirewallEnabled"] = GetFirewallStatus()
+	}
+
+	attributes["XProtectEnabled"] = GetXProtectStatus()
+	attributes["SecureTokenEnabled"] = GetSecureTokenStatus()
+	attributes["ScreenLockEnabled"] = GetScreenLockStatus()
+	attributes["MdmEnrolled"] = GetMdmEnrolledStatus()
+	attributes["OsBuildNumber"] = GetOSBuild()
+	attributes["DiskFreeGb"] = GetDiskFreeGB()
+	attributes["DiskUsedPercent"] = GetDiskUsedPercent()
+	attributes["UptimeDays"] = GetUptimeDays()
+
+	return attributes
 }
