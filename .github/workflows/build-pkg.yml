@@ -36,9 +36,17 @@ jobs:
           # Apple Silicon and Intel Macs without a separate .pkg per arch,
           # unlike the Windows agent (Windows doesn't have an equivalent to
           # lipo, so that repo ships two separate MSIs instead).
-          SRC="main.go config.go telemetry_macos.go security_macos.go apps_macos.go"
-          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o build/agent-arm64 $SRC
-          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -o build/agent-amd64 $SRC
+          #
+          # Builds the whole package directory ("."), not an explicit file
+          # list — an earlier version hardcoded the .go filenames here, which
+          # silently excluded every file added after this script was
+          # written (caught when customchecks_macos.go went in: it compiled
+          # fine locally-reviewed but failed CI with "undefined: ..." for
+          # every symbol the hardcoded list left out). "." picks up any file
+          # in this repo automatically, matching the Windows agent's own
+          # `go build ... .` in build.yml.
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o build/agent-arm64 .
+          CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -o build/agent-amd64 .
           lipo -create -output build/payload/usr/local/bin/applivery-soar-agent build/agent-arm64 build/agent-amd64
           lipo -info build/payload/usr/local/bin/applivery-soar-agent
 
