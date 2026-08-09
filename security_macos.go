@@ -55,8 +55,35 @@ func GetXProtectStatus() bool {
 	return true
 }
 
+// getConsoleUser resolves whoever's actually logged in at the console right
+// now — mirrors report-security-attributes.sh's own CONSOLE_USER logic
+// (`stat -f%Su /dev/console`, excluding "root" and empty, since this agent
+// itself runs as a LaunchDaemon under root). Secure Token and screen-lock
+// settings are per-user (stored in that user's own defaults domain /
+// AuthDB record), not machine-wide, so querying them without resolving the
+// real console user first — as an earlier version of this agent did by
+// always checking "root" — reports a meaningless or always-false result. A
+// machine with no one logged in (or only SSH'd in as root) has no
+// meaningful console user, so both attributes report as unknown/false
+// rather than guessed, same as the shell script.
+func getConsoleUser() string {
+	out, err := exec.Command("stat", "-f%Su", "/dev/console").Output()
+	if err != nil {
+		return ""
+	}
+	user := strings.TrimSpace(string(out))
+	if user == "" || user == "root" {
+		return ""
+	}
+	return user
+}
+
 func GetSecureTokenStatus() bool {
-	out, err := exec.Command("sysadminctl", "-secureTokenStatus", "root").Output()
+	consoleUser := getConsoleUser()
+	if consoleUser == "" {
+		return false
+	}
+	out, err := exec.Command("sysadminctl", "-secureTokenStatus", consoleUser).Output()
 	if err != nil {
 		return false
 	}
@@ -64,7 +91,15 @@ func GetSecureTokenStatus() bool {
 }
 
 func GetScreenLockStatus() bool {
-	out, err := exec.Command("defaults", "read", "com.apple.screensaver", "askForPassword").Output()
+	consoleUser := getConsoleUser()
+	if consoleUser == "" {
+		return false
+	}
+	// Runs as the console user (via sudo -u, same as the shell script's
+	// run_as_console_user) — invoked here from root (LaunchDaemon context),
+	// so no password prompt. A plain `defaults read` from this process
+	// would read root's own preference domain, not the logged-in user's.
+	out, err := exec.Command("sudo", "-u", consoleUser, "defaults", "read", "com.apple.screensaver", "askForPassword").Output()
 	if err != nil {
 		return false
 	}
