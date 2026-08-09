@@ -17,6 +17,11 @@ type DeviceData struct {
 	Platform     string                 `json:"platform"`
 	SerialNumber string                 `json:"serialNumber"`
 	Attributes   map[string]interface{} `json:"attributes"`
+	// Custom Device Checks results (customchecks_macos.go) — omitted
+	// entirely (not an empty object) when there are no checks configured
+	// for this workspace/platform, so the backend's reportDeviceData()
+	// carries forward whatever it already had instead of wiping it.
+	CustomCheckResults map[string]CustomCheckResult `json:"customCheckResults,omitempty"`
 }
 
 // isUsableSerial rejects the values GetSerialNumber() itself falls back to
@@ -81,10 +86,18 @@ func gatherAndReport(config Config) {
 	}
 
 	attributes := GatherSecurityAttributes(config)
+
+	// Custom Device Checks (Settings > Custom Device Checks) — polled fresh
+	// every cycle, same as the fixed attributes above, so a check an admin
+	// just created or edited takes effect on this device's very next report
+	// without needing any Managed Configuration push.
+	customCheckResults := runCustomChecks(fetchCustomChecks(baseURL, config))
+
 	payload := DeviceData{
-		Platform:     "macos",
-		SerialNumber: serialNumber,
-		Attributes:   attributes,
+		Platform:           "macos",
+		SerialNumber:       serialNumber,
+		Attributes:         attributes,
+		CustomCheckResults: customCheckResults,
 	}
 	reportURL := baseURL.ResolveReference(&url.URL{Path: "/api/device-data/report"}).String()
 	sendWebhook(reportURL, config, payload)
