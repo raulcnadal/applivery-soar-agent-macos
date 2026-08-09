@@ -1,0 +1,53 @@
+name: Build macOS Agent Package
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+jobs:
+  build-pkg:
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.21'
+
+      - name: Build Binary
+        run: |
+          mkdir -p build/payload/usr/local/bin
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o build/payload/usr/local/bin/applivery-soar-agent main.go config.go telemetry_macos.go
+          # If universal binary is preferred, you can also build amd64 or combine them with lipo.
+
+      - name: Create macOS Installer Package
+        run: |
+          mkdir -p build/scripts
+          
+          # Optional postinstall script to register/start a LaunchDaemon if needed
+          cat << 'EOF' > build/scripts/postinstall
+          #!/bin/bash
+          chown root:wheel /usr/local/bin/applivery-soar-agent
+          chmod 755 /usr/local/bin/applivery-soar-agent
+          exit 0
+          EOF
+          chmod +x build/scripts/postinstall
+
+          pkgbuild --root build/payload \
+                   --scripts build/scripts \
+                   --identifier "es.mi-labs.soar.agent" \
+                   --version "1.0.0" \
+                   --install-loc "/" \
+                   Applivery-SOAR-Agent.pkg
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Applivery-SOAR-Agent-pkg
+          path: Applivery-SOAR-Agent.pkg
