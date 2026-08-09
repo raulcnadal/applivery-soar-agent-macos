@@ -23,18 +23,33 @@ jobs:
       - name: Build Binary
         run: |
           mkdir -p build/payload/usr/local/bin
-          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o build/payload/usr/local/bin/applivery-soar-agent main.go config.go telemetry_macos.go
-          # If universal binary is preferred, you can also build amd64 or combine them with lipo.
+          mkdir -p build/payload/Library/LaunchDaemons
+          
+          CGO_ENABLED=0 GOOS=darwin GOARCH=arm64 go build -o build/payload/usr/local/bin/applivery-soar-agent main.go config.go telemetry_macos.go security_macos.go apps_macos.go
+          
+          # Copy the LaunchDaemon plist into the package payload
+          cp es.mi-labs.soar.agent.plist build/payload/Library/LaunchDaemons/es.mi-labs.soar.agent.plist
 
       - name: Create macOS Installer Package
         run: |
           mkdir -p build/scripts
           
-          # Optional postinstall script to register/start a LaunchDaemon if needed
+          # Postinstall script to configure permissions and bootstrap the LaunchDaemon service
           cat << 'EOF' > build/scripts/postinstall
           #!/bin/bash
+
+          # Set strict root ownership and permissions on binary
           chown root:wheel /usr/local/bin/applivery-soar-agent
           chmod 755 /usr/local/bin/applivery-soar-agent
+
+          # Set strict root ownership and permissions on plist
+          chown root:wheel /Library/LaunchDaemons/es.mi-labs.soar.agent.plist
+          chmod 644 /Library/LaunchDaemons/es.mi-labs.soar.agent.plist
+
+          # Load and start the service immediately via launchctl
+          launchctl bootstrap system /Library/LaunchDaemons/es.mi-labs.soar.agent.plist 2>/dev/null || \
+          launchctl load -w /Library/LaunchDaemons/es.mi-labs.soar.agent.plist
+
           exit 0
           EOF
           chmod +x build/scripts/postinstall
