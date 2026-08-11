@@ -41,10 +41,22 @@ func isUsableSerial(serial string) bool {
 	}
 }
 
-func runAgentLoop(config Config, stopChan <-chan struct{}) {
+// runAgentLoop no longer takes a Config: it used to be loaded once at
+// process start and cached for the whole run, which meant a Managed
+// Configuration file landing after the agent was already running (e.g.
+// launchd started it before an MDM script deployed the file) was silently
+// ignored until the process restarted. gatherAndReport now reloads the
+// config file fresh on every tick — same cadence Custom Device Checks
+// already used — so config deployed after launch takes effect on the very
+// next cycle. The initial load here only fixes the ticker's own interval
+// for this process's lifetime; IntervalSec changes still need a restart to
+// apply, which is an acceptable trade-off since a stuck/wrong interval is
+// far less disruptive than "never picks up new config at all".
+func runAgentLoop(stopChan <-chan struct{}) {
 	log.Println("Agent loop started. Reporting data...")
 
-	interval := time.Duration(config.IntervalSec) * time.Second
+	initial := LoadConfig()
+	interval := time.Duration(initial.IntervalSec) * time.Second
 	if interval < 30*time.Second {
 		interval = 3600 * time.Second
 	}
@@ -52,12 +64,12 @@ func runAgentLoop(config Config, stopChan <-chan struct{}) {
 	ticker := time.NewTicker(interval)
 	defer ticker.Stop()
 
-	gatherAndReport(config)
+	gatherAndReport()
 
 	for {
 		select {
 		case <-ticker.C:
-			gatherAndReport(config)
+			gatherAndReport()
 		case <-stopChan:
 			log.Println("Agent loop received stop signal. Shutting down gracefully.")
 			return
@@ -65,7 +77,8 @@ func runAgentLoop(config Config, stopChan <-chan struct{}) {
 	}
 }
 
-func gatherAndReport(config Config) {
+func gatherAndReport() {
+	config := LoadConfig()
 	if !config.IsConfigured() {
 		log.Println("No WorkspaceSlug/ReportSecret in Managed Configuration yet — skipping this cycle. Deploy /Library/Preferences/es.mi-labs.soar.agent.json to start reporting.")
 		return
@@ -84,6 +97,7 @@ func gatherAndReport(config Config) {
 		log.Printf("Serial number %q is empty or unreadable — skipping this report to avoid colliding with another device's data.", serialNumber)
 		return
 	}
+	log.Printf("Reporting as serial number %q — must match Applivery's own inventory exactly (case-sensitive) for the backend to attach this data to the right device.", serialNumber)
 
 	attributes := GatherSecurityAttributes(config)
 

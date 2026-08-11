@@ -5,6 +5,7 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"os"
 )
@@ -55,5 +56,27 @@ func LoadConfig() Config {
 		log.Printf("Failed to parse config: %v. Using defaults.", err)
 	}
 
+	log.Printf(
+		"Config loaded: BaseURL=%s WorkspaceSlug=%s ReportSecret=%s ReportBitLocker=%v ReportFirewall=%v ReportApps=%v IntervalSec=%d",
+		cfg.BaseURL, maskEmpty(cfg.WorkspaceSlug), maskSecret(cfg.ReportSecret), cfg.ReportBitLocker, cfg.ReportFirewall, cfg.ReportApps, cfg.IntervalSec,
+	)
+
 	return cfg
+}
+
+// maskEmpty and maskSecret exist purely so LoadConfig's summary line is
+// actually useful for troubleshooting "the config was deployed but nothing
+// is being reported" — printed every cycle now that config is reloaded each
+// tick (see gatherAndReport in telemetry_macos.go), never the raw secret.
+func maskEmpty(s string) string {
+	if s == "" {
+		return "(not set)"
+	}
+	return s
+}
+func maskSecret(s string) string {
+	if s == "" {
+		return "(not set)"
+	}
+	return fmt.Sprintf("(set, %d chars)", len(s))
 }

@@ -13,10 +13,9 @@ import (
 func main() {
 	log.Println("Starting Applivery SOAR Agent for macOS...")
 
-	config := LoadConfig()
 	stopChan := make(chan struct{})
 
-	go runAgentLoop(config, stopChan)
+	go runAgentLoop(stopChan)
 
 	// Block until termination signal is received
 	sigChan := make(chan os.Signal, 1)

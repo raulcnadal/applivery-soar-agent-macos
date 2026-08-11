@@ -257,15 +257,37 @@ sudo launchctl bootstrap system /Library/LaunchDaemons/es.mi-labs.soar.agent.pli
   sudo launchctl list | grep es.mi-labs.soar.agent
   ```
 
-* **Logs:**
+* **Logs:** launchd redirects stdout/stderr straight to disk per
+  `es.mi-labs.soar.agent.plist` — no extra setup needed:
 
   ```bash
   tail -f /var/log/applivery-soar-agent.log
-  tail -f /var/log/applivery-soar-agent.error.log
+  tail -f /var/log/applivery-soar-agent.err
   ```
 
+  Every cycle logs the resolved Managed Configuration (`Config loaded:
+  BaseURL=... WorkspaceSlug=... ReportSecret=(set, N chars)...` — the secret
+  itself is never logged) so you can immediately tell whether
+  `/Library/Preferences/es.mi-labs.soar.agent.json` was actually read, plus
+  the serial number it's reporting under and the HTTP result of each report
+  attempt.
 * **Connectivity:** confirm outbound HTTPS to your SOAR instance's `base_url`
   is permitted through any local firewall or proxy.
 * **"No WorkspaceSlug/ReportSecret" in the logs:** the managed preference
   file hasn't been deployed yet, or is missing `workspace_slug`/
-  `report_secret` — see *Configuration Reference* above.
+  `report_secret` — see *Configuration Reference* above. Confirm what's
+  actually on disk with `cat /Library/Preferences/es.mi-labs.soar.agent.json`.
+* **Config was just deployed but the log still shows the old values:** as of
+  this build, Managed Configuration is re-read from disk on every report
+  cycle (default hourly) — no restart needed, it'll pick it up on the next
+  tick. Older builds cached the config once at launch; if you're
+  troubleshooting a device that's been running since before this change
+  shipped, `sudo launchctl kickstart -k system/es.mi-labs.soar.agent` to
+  force an immediate reload rather than waiting out the interval.
+* **Device shows "No security attestation reported" in SOAR despite the
+  agent's own logs showing a successful POST:** the backend matches reports
+  to a device by exact, case-sensitive serial number. Compare the serial
+  number this agent logs on each report against the serial Applivery shows
+  for that device in its own inventory (`system_profiler
+  SPHardwareDataType | grep "Serial"`) — any difference in case, spacing, or
+  formatting will silently prevent the match.
