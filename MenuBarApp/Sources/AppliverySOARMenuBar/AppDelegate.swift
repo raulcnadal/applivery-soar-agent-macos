@@ -178,6 +178,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
 
         panel.setFrameOrigin(origin)
         panel.makeKeyAndOrderFront(nil)
+
+        // Read back the ACTUAL final frame after ordering front — if
+        // AppKit's automatic screen-edge constraining (see StatusPanel's
+        // constrainFrameRect override, added this same round) was silently
+        // overriding the origin set two lines above, intendedOrigin and
+        // actualFrame.origin will differ here. If they match and a gap is
+        // still visible on screen, the cause is something else entirely.
+        let readbackMsg = "Applivery SOAR [panel-diagnostics]: post-order readback — intendedOrigin=\(origin) actualFrame=\(panel.frame)"
+        NSLog("%@", readbackMsg)
+        DebugLog.write(readbackMsg)
+
         startOutsideClickMonitor()
     }
 

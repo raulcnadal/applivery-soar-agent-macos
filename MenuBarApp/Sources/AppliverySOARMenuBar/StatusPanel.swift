@@ -71,4 +71,24 @@ final class StatusPanel: NSPanel {
 
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+
+    /// The logged geometry from a real device (see AppDelegate.openPanel's
+    /// diagnostics) shows this panel's intended top edge lands 1pt *above*
+    /// screen.visibleFrame's top boundary — i.e. it deliberately overlaps
+    /// the reserved menu-bar strip by a hair, which is exactly what "flush
+    /// against the icon" requires, since the icon's own bottom edge sits
+    /// right at that same boundary. AppKit's default behavior is to
+    /// automatically push ("constrain") any window's frame back inside
+    /// visibleFrame during makeKeyAndOrderFront, which would silently
+    /// override setFrameOrigin's carefully-computed position — plausibly
+    /// explaining why a screenshot showed a large gap despite the logged
+    /// origin being mathematically flush. Overriding this to a no-op is the
+    /// standard, documented way menu-bar-anchored panels opt out of that
+    /// safety behavior (Apple's own NSPopover backing window does the same
+    /// internally). Should be revisited if this panel ever needs to support
+    /// being dragged or resized by the user, since constraining normally
+    /// also keeps user-moved windows from disappearing off-screen.
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        frameRect
+    }
 }
