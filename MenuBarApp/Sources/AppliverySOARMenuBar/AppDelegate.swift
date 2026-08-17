@@ -88,7 +88,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // Calling NSApp.activate BEFORE popover.show forces AppKit to evaluate
             // window bounds while the application state is mid-activation, causing
             // the popover arrow to misalign vertically and drift across the screen.
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .maxY)
 
             // Make the popover window key and activate the process AFTER anchoring
             popover.contentViewController?.view.window?.makeKey()
