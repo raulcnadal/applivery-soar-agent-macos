@@ -68,16 +68,42 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     }
 
     @objc private func togglePanel(_ sender: AnyObject?) {
-        guard let button = statusItem?.button, let panel else { return }
+        // TEMPORARY diagnostics (see openPanel's own diagnostics block
+        // below for the full story): a prior round of this same logging
+        // never printed anything at all despite the click demonstrably
+        // firing (trackMouse/sendAction showed up in the unified log), on a
+        // build hash-verified to contain this exact code. That means
+        // control never reached the log line inside openPanel — most
+        // likely one of the two guard clauses below is bailing silently.
+        // Logging unconditionally at entry, and explicitly on each bail
+        // path, so this can't happen again: some line will always print.
+        NSLog("%@", "Applivery SOAR [panel-diagnostics]: togglePanel fired. statusItem=\(String(describing: statusItem)) button=\(String(describing: statusItem?.button)) panel=\(String(describing: panel))")
+        guard let button = statusItem?.button else {
+            NSLog("%@", "Applivery SOAR [panel-diagnostics]: togglePanel bailing — statusItem.button is nil")
+            return
+        }
+        guard let panel else {
+            NSLog("%@", "Applivery SOAR [panel-diagnostics]: togglePanel bailing — panel is nil")
+            return
+        }
         if panel.isVisible {
+            NSLog("%@", "Applivery SOAR [panel-diagnostics]: closing (panel.isVisible was true)")
             closePanel()
         } else {
+            NSLog("%@", "Applivery SOAR [panel-diagnostics]: opening (panel.isVisible was false)")
             openPanel(relativeTo: button)
         }
     }
 
     private func openPanel(relativeTo button: NSStatusBarButton) {
-        guard let panel, let buttonWindow = button.window else { return }
+        guard let panel else {
+            NSLog("%@", "Applivery SOAR [panel-diagnostics]: openPanel bailing — panel is nil")
+            return
+        }
+        guard let buttonWindow = button.window else {
+            NSLog("%@", "Applivery SOAR [panel-diagnostics]: openPanel bailing — button.window is nil")
+            return
+        }
 
         // Opening the panel is this app's equivalent of the Windows tray
         // card's own "always re-read on open" behavior (card.go's
@@ -121,7 +147,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // every input to the computation so the next fix can be based on
         // the real numbers instead of another blind guess. Safe to remove
         // once the gap is confirmed fixed.
-        NSLog("""
+        // %@ with the fully-built message as a single argument (rather than
+        // handing the message straight to NSLog as its own format string)
+        // — if any interpolated value here ever happened to contain a "%"
+        // character, NSLog would try to interpret it as a format
+        // specifier, which can silently mangle or drop the whole line.
+        // Cheap insurance now that a previous round of this exact logging
+        // printed nothing at all on a confirmed-correct build.
+        let diagnosticsMessage = """
         Applivery SOAR [panel-diagnostics]: \
         button.bounds=\(button.bounds) \
         buttonWindow.frame=\(buttonWindow.frame) \
@@ -131,7 +164,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         screen.visibleFrame=\(String(describing: (buttonWindow.screen ?? NSScreen.main)?.visibleFrame)) \
         panelSize=\(width)x\(height) \
         computedOrigin=\(origin)
-        """)
+        """
+        NSLog("%@", diagnosticsMessage)
 
         panel.setFrameOrigin(origin)
         panel.makeKeyAndOrderFront(nil)
