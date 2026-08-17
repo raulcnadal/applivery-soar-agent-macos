@@ -59,6 +59,11 @@ who already configured it.
   client certificate and authenticates every subsequent request with it
   instead of the shared `report_secret`, renewing itself automatically —
   see [mTLS Agent Authentication](#mtls-agent-authentication) below.
+* **Menu bar app:** a separate SwiftUI app (`Applivery SOAR.app`) shows this
+  device's live status — compliance, what was last reported, Force
+  report/Force evaluate buttons — and posts a notification when compliance
+  changes, all backed by a small file-based IPC contract with this daemon —
+  see [Menu Bar App](#menu-bar-app) below.
 
 ---
 
@@ -86,16 +91,21 @@ second supervisor process here, and no plan to add one:
   `launchctl bootstrap`. `KeepAlive` protects against the daemon dying on
   its own; it was never going to protect against someone with root
   deliberately telling `launchd` to stop supervising it, on either platform.
-* **What's still pending:** once the menu bar app ships (Phase 3 of
-  `backend/docs/macos-agent-parity-roadmap.md`), it registers as its own
-  per-console-user LaunchAgent with the same `KeepAlive`/`ThrottleInterval`
-  treatment — and at that point this daemon also gains a small periodic
-  check that the LaunchAgent is actually loaded for whichever user is at
-  the console (`launchctl print gui/<uid>/...`), re-bootstrapping it if a
-  Managed-Configuration push landed while that user was already logged in
-  (`RunAtLoad` doesn't fire retroactively). There's nothing to check yet —
-  no LaunchAgent exists until Phase 3 creates one — so that piece lands
-  together with the menu bar app rather than as inert code today.
+* **The menu bar app (Phase 3) now exists and gets the same treatment:** its
+  own LaunchAgent plist (`es.mi-labs.soar.menubar.plist`) sets `KeepAlive`/
+  `ThrottleInterval` identically to this daemon's own plist — see [Menu Bar
+  App](#menu-bar-app) below for the full design.
+* **Still deliberately not built:** this daemon does not yet cross-check
+  that the menu bar app's LaunchAgent is actually loaded for whichever user
+  is at the console and re-bootstrap it if not (e.g. `launchctl print
+  gui/<uid>/...`, re-running `launchctl bootstrap` if missing). The
+  installer's postinstall script bootstraps it once at install time for
+  whoever's logged in then (see [Menu Bar App](#menu-bar-app)), and
+  `RunAtLoad` covers every login after that — the one gap is a user who was
+  already logged in during a Managed-Configuration-only push that doesn't
+  reinstall the package. Flagging this explicitly rather than leaving it
+  silently unbuilt; low priority since the LaunchAgent itself is installed
+  once and rarely removed by anything other than a full uninstall.
 
 ---
 
@@ -196,6 +206,91 @@ handshake and forward the verified client identity via headers — Settings →
 mTLS Agent Authentication shows the exact nginx/NPM config (and the
 equivalent for Traefik/Caddy/HAProxy) plus whether the internal proxy secret
 is currently configured on this backend.
+
+---
+
+## Menu Bar App
+
+`MenuBarApp/` is a separate SwiftUI app — `Applivery SOAR.app` — that shows
+this device's live status from the menu bar: device name, a Compliant/issue
+pill, Force report / Force evaluate compliance buttons, what was last
+reported (FileVault, Firewall, app inventory), and — when compliance is
+available — a risk score bar and the full per-policy pass/fail list. It's
+the direct macOS counterpart of the Windows agent's tray icon and status
+card, built to the identical visual/data design (same colors, same risk-tier
+thresholds, same 6-policy-row cap with a "+N more" line, same "Managed by
+{slug}" footer) — see that repo's own `tray/card.go` if you're comparing the
+two side by side.
+
+**Why a separate Swift Package instead of an `.xcodeproj`:** `MenuBarApp/`
+is a plain Swift Package (`Package.swift` + `Sources/`), not a hand-authored
+Xcode project file. An `.xcodeproj`/`.pbxproj` is a large, mostly-opaque
+format that's painful to review as a diff and easy to corrupt editing by
+hand outside Xcode itself; a Swift Package is just source files, reviewable
+the same way as every `.go` file in this repo. `.github/workflows/
+build-pkg.yml` runs `swift build` on the `macos-latest` runner (which has a
+full Xcode/Swift toolchain) as this target's actual compile verification —
+same role `go build` plays for the daemon.
+
+### IPC contract with the daemon
+
+Both processes share one directory: `/Library/Application Support/Applivery/
+SOAR/`. The daemon (root, via LaunchDaemon) owns writing to it; this app
+(unprivileged, via a per-console-user LaunchAgent) only reads from it and
+creates two small trigger files — see `agentstatus_macos.go` (repo root) for
+the daemon's full implementation and exactly why the directory ends up
+`chmod 1777` (world-writable + sticky, like `/tmp`) after every daemon
+write.
+
+| File | Written by | Read/consumed by | Purpose |
+| :--- | :--- | :--- | :--- |
+| `status.json` | Daemon, after every report cycle and forced evaluation | This app, on open + a 60s timer | Everything the card renders — device name, compliance, what was last reported. Missing or unparseable is treated as "no data yet," not an error — this app can easily start before the daemon's first cycle completes. |
+| `trigger-report.flag` | This app, when "Force report" is clicked | Daemon, polled every 2s | Existence alone triggers an immediate report cycle; content (an RFC3339 timestamp) is never read, only written for a human `cat`-ing the file mid-troubleshoot. Consumed (deleted) by the daemon the instant it's seen. |
+| `trigger-evaluate.flag` | This app, when "Force evaluate compliance" is clicked | Daemon, polled every 2s | Same mechanism — triggers `POST /api/device-data/evaluate-now`, then a fresh compliance re-fetch patched into `status.json`. |
+
+### Notifications
+
+A local notification (via `UNUserNotificationCenter`) fires only on a
+strict compliance-violation-count transition — 0→N ("Compliance issue
+detected") or N→0 ("Compliance restored") — never on any N→M change with
+both sides nonzero, and never when the backend's compliance evaluation
+itself isn't available yet. The 0-baseline is re-established silently on
+every app launch (in-memory only, not persisted), so a relaunch never
+re-fires a notification for a transition that already happened. Identical
+semantics to the Windows tray's own `checkComplianceTransition`.
+
+### Fonts & visuals
+
+The same 3 static Outfit weights (Regular/SemiBold/Bold) the Windows tray
+embeds are bundled as Swift Package resources and registered process-wide
+via `CTFontManagerRegisterFontsForURL` at launch (`FontLoader.swift`) — see
+that file's doc comment for why each weight is its own font *family* as far
+as CoreText is concerned (`"Outfit Regular"`/`"Outfit SemiBold"`/`"Outfit
+Bold"`), not 3 weights of one family. The menu bar icon itself is currently
+a placeholder SF Symbol (`checkmark.shield`, template-rendered so AppKit
+auto-inverts it for light/dark menu bars) — swapping in a real Applivery
+mark only requires touching `AppDelegate.swift`'s `setUpStatusItem()`.
+
+### Installation
+
+Ships inside the same `Applivery-SOAR-Agent.pkg` as the daemon — the
+package payload places the wrapped `.app` bundle at `/Applications/
+Applivery SOAR.app` and its plist at `/Library/LaunchAgents/
+es.mi-labs.soar.menubar.plist`. `/Library/LaunchAgents/` is loaded
+automatically by `launchd` once per GUI login, for whichever user just
+logged in — unprivileged, unlike the daemon's `/Library/LaunchDaemons/`
+entry. The postinstall script also bootstraps it immediately into whoever's
+*already* logged in at install time (`launchctl asuser <uid> launchctl
+bootstrap gui/<uid> ...`), since a plain file copy only takes effect on the
+next login otherwise.
+
+**Signing status:** CI ad-hoc signs the wrapped `.app` (`codesign --sign -`)
+— enough to launch on the same class of machine that built it, but not real
+Developer ID signing or notarization. That's deferred to Phase 0 of
+`backend/docs/macos-agent-parity-roadmap.md` (Applivery's own Developer
+account team), same as the daemon binary's own signing status — this repo
+has never shipped a Developer-ID-signed artifact yet, Phase 3 doesn't change
+that.
 
 ---
 

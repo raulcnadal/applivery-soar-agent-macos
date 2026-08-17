@@ -53,11 +53,69 @@ jobs:
           # Copy the LaunchDaemon plist into the package payload
           cp es.mi-labs.soar.agent.plist build/payload/Library/LaunchDaemons/es.mi-labs.soar.agent.plist
 
+      # Phase 3 of the macOS parity roadmap — the SwiftUI menu bar app lives
+      # in its own Swift Package (MenuBarApp/) rather than an .xcodeproj (see
+      # MenuBarApp/Package.swift's doc comment for why), so `swift build` is
+      # this step's equivalent of `go build` above: the actual compile
+      # verification this repo has no other way to get, since no local
+      # Xcode/Swift toolchain is available anywhere else in this project's
+      # tooling.
+      - name: Build Menu Bar App (universal — arm64 + amd64) and wrap into .app bundle
+        run: |
+          cd MenuBarApp
+          swift build -c release --arch arm64 --arch x86_64
+          cd ..
+
+          APP="build/payload/Applications/Applivery SOAR.app"
+          mkdir -p "$APP/Contents/MacOS"
+          mkdir -p "$APP/Contents/Resources"
+
+          # swift build --arch arm64 --arch x86_64 already emits a single
+          # universal (lipo'd) binary under .build/apple/Products/Release/
+          # when multiple --arch flags are passed in one invocation — no
+          # separate lipo step needed here, unlike the Go binary above
+          # (`go build` has no multi-arch-in-one-invocation equivalent).
+          BIN="MenuBarApp/.build/apple/Products/Release/AppliverySOARMenuBar"
+          if [ ! -f "$BIN" ]; then
+            echo "Expected universal binary not found at $BIN — listing .build to help diagnose:"
+            find MenuBarApp/.build -maxdepth 4 -type f -perm +111 2>/dev/null || true
+            exit 1
+          fi
+          lipo -info "$BIN"
+          cp "$BIN" "$APP/Contents/MacOS/AppliverySOARMenuBar"
+          cp MenuBarApp/Info.plist "$APP/Contents/Info.plist"
+
+          # Bundled Outfit fonts (SPM's .copy("Resources/Fonts") resource
+          # rule preserves the Fonts/ subdirectory inside the generated
+          # resource bundle — FontLoader.swift looks them up via
+          # Bundle.module with subdirectory:"Fonts" to match).
+          RESOURCE_BUNDLE=$(find MenuBarApp/.build/apple/Products/Release -maxdepth 1 -iname "*.bundle" | head -n1)
+          if [ -n "$RESOURCE_BUNDLE" ]; then
+            cp -R "$RESOURCE_BUNDLE" "$APP/Contents/Resources/"
+          else
+            echo "Warning: no generated resource bundle found — the menu bar app will fall back to system fonts."
+          fi
+
+          # Ad-hoc signing only (Phase 0 — real Developer ID signing +
+          # notarization is deferred until Applivery's own Developer account
+          # team takes over, per backend/docs/macos-agent-parity-roadmap.md
+          # §7). This is enough for the binary to launch at all under
+          # Gatekeeper's runtime checks on the same machine that built it;
+          # it is NOT a substitute for real signing before this ships to
+          # customer fleets via MDM.
+          codesign --force --deep --sign - "$APP"
+          codesign --verify --verbose "$APP" || true
+
+          mkdir -p build/payload/Library/LaunchAgents
+          cp es.mi-labs.soar.menubar.plist build/payload/Library/LaunchAgents/es.mi-labs.soar.menubar.plist
+
       - name: Create macOS Installer Package
         run: |
           mkdir -p build/scripts
           
-          # Postinstall script to configure permissions and bootstrap the LaunchDaemon service
+          # Postinstall script to configure permissions and bootstrap both
+          # the LaunchDaemon (agent) and, new in Phase 3, the LaunchAgent
+          # (menu bar app) services.
           cat << 'EOF' > build/scripts/postinstall
           #!/bin/bash
 
@@ -72,6 +130,33 @@ jobs:
           # Load and start the service immediately via launchctl
           launchctl bootstrap system /Library/LaunchDaemons/es.mi-labs.soar.agent.plist 2>/dev/null || \
           launchctl load -w /Library/LaunchDaemons/es.mi-labs.soar.agent.plist
+
+          # --- Phase 3: menu bar app (LaunchAgent, per-console-user) ---
+
+          # root:wheel + 755 recursively, same reasoning as the daemon
+          # binary above — a world-writable app bundle would let any local
+          # user tamper with what launchd/the console user's session runs.
+          chown -R root:wheel "/Applications/Applivery SOAR.app"
+          chmod -R 755 "/Applications/Applivery SOAR.app"
+
+          chown root:wheel /Library/LaunchAgents/es.mi-labs.soar.menubar.plist
+          chmod 644 /Library/LaunchAgents/es.mi-labs.soar.menubar.plist
+
+          # A plain `cp` into /Library/LaunchAgents/ is picked up automatically
+          # by launchd for every FUTURE login — but if someone is already
+          # logged in at install time (the common case for an interactive
+          # install, as opposed to zero-touch MDM enrollment pre-login), the
+          # app won't appear in their menu bar until their next login unless
+          # this script also bootstraps it into their already-running GUI
+          # session right now. Mirrors the Windows agent's own installer
+          # immediately re-firing the tray's Scheduled Task rather than
+          # waiting for the next logon.
+          CONSOLE_USER=$(stat -f%Su /dev/console 2>/dev/null)
+          CONSOLE_UID=$(stat -f%u /dev/console 2>/dev/null)
+          if [ -n "$CONSOLE_USER" ] && [ "$CONSOLE_USER" != "root" ] && [ -n "$CONSOLE_UID" ]; then
+            launchctl asuser "$CONSOLE_UID" launchctl bootstrap "gui/$CONSOLE_UID" /Library/LaunchAgents/es.mi-labs.soar.menubar.plist 2>/dev/null || \
+            launchctl asuser "$CONSOLE_UID" launchctl load -w /Library/LaunchAgents/es.mi-labs.soar.menubar.plist 2>/dev/null || true
+          fi
 
           exit 0
           EOF

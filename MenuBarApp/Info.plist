@@ -1,0 +1,42 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>CFBundleExecutable</key>
+	<string>AppliverySOARMenuBar</string>
+	<key>CFBundleIdentifier</key>
+	<string>es.mi-labs.soar.menubar</string>
+	<key>CFBundleName</key>
+	<string>Applivery SOAR</string>
+	<key>CFBundleDisplayName</key>
+	<string>Applivery SOAR</string>
+	<key>CFBundlePackageType</key>
+	<string>APPL</string>
+	<key>CFBundleShortVersionString</key>
+	<string>1.0.0</string>
+	<key>CFBundleVersion</key>
+	<string>1</string>
+	<key>CFBundleInfoDictionaryVersion</key>
+	<string>6.0</string>
+	<!-- Background/agent app: no Dock icon, no Cmd+Tab entry — the menu bar
+	     icon (NSStatusItem, see AppDelegate.swift) is this app's only UI
+	     surface, same as the Windows tray having no taskbar window.
+	     NSApp.setActivationPolicy(.accessory) in AppDelegate.swift is a
+	     belt-and-suspenders reinforcement of this same setting. -->
+	<key>LSUIElement</key>
+	<true/>
+	<key>LSMinimumSystemVersion</key>
+	<string>12.0</string>
+	<key>NSHumanReadableCopyright</key>
+	<string>Applivery</string>
+	<!-- Not sandboxed: this app reads a root-owned shared IPC directory
+	     under /Library/Application Support/Applivery/SOAR/ (see
+	     IPCPaths.swift) that the App Sandbox's container-relative file
+	     access would not permit reaching at all. The daemon it talks to is
+	     itself unsandboxed for the same class of reason (root filesystem
+	     access, arbitrary shell-outs for security checks) — see the Go
+	     daemon's own README for that side of the story. -->
+	<key>NSSupportsSuddenTermination</key>
+	<false/>
+</dict>
+</plist>

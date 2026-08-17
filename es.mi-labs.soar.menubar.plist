@@ -1,0 +1,40 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>es.mi-labs.soar.menubar</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/Applications/Applivery SOAR.app/Contents/MacOS/AppliverySOARMenuBar</string>
+    </array>
+    <!-- Placed in /Library/LaunchAgents/ (not /Library/LaunchDaemons/, where
+         es.mi-labs.soar.agent.plist lives) — launchd loads every job in
+         /Library/LaunchAgents/ once per GUI login session, for whichever
+         console user just logged in, unprivileged. That's the deliberate
+         difference from the daemon: this app needs to run AS the logged-in
+         user (menu bar UI, UNUserNotificationCenter banners, reading a
+         directory this same user's LaunchAgent process can only reach at
+         all because the daemon loosens its permissions — see
+         agentstatus_macos.go's writeStatusCache doc comment), not as root.
+         The postinstall script in .github/workflows/build-pkg.yml also
+         bootstraps this job immediately for whoever is ALREADY logged in
+         at install time, since a plain `cp` into this directory only takes
+         effect for the NEXT login otherwise. -->
+    <key>RunAtLoad</key>
+    <true/>
+    <!-- KeepAlive as a plain boolean restarts this app after any exit,
+         same reasoning as the daemon's own plist (es.mi-labs.soar.agent.plist)
+         — this is this app's entire process-supervision story, no separate
+         watchdog needed, consistent with the Phase 2 decision documented in
+         README.md's "Process Supervision" section. -->
+    <key>KeepAlive</key>
+    <true/>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+    <key>StandardOutPath</key>
+    <string>/tmp/applivery-soar-menubar.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/applivery-soar-menubar.err</string>
+</dict>
+</plist>
