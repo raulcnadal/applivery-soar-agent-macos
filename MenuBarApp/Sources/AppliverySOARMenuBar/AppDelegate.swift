@@ -24,6 +24,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private let store = StatusStore()
     private var outsideClickMonitor: Any?
 
+    // Initial-measurement height only, tall enough that no content clips
+    // during the fitting-size pass in openPanel below — not the height the
+    // panel actually ends up at (that's measured fresh via
+    // hostingView.fittingSize every time the panel opens, since it varies
+    // with how many policy rows the current device has).
     private static let panelHeight: CGFloat = 460
     private static let screenEdgeMargin: CGFloat = 8
 
@@ -126,7 +131,35 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // "recompute fresh on every show" behavior as the Windows tray
         // card's own cardWidthPx (tray/card.go).
         let width = CardSizing.idealWidth(for: store.cache)
-        let height = Self.panelHeight
+
+        // ROOT CAUSE of the persistent vertical gap, finally nailed down via
+        // a post-order frame readback on a real device: this app's content
+        // is entirely Auto-Layout-driven (StatusCardView's SwiftUI tree,
+        // hosted via NSHostingView, pinned to all 4 edges of the panel's
+        // NSVisualEffectView contentView). Once a window's content view is
+        // under Auto Layout, AppKit lets the layout system's own resolved
+        // size win over whatever setContentSize was told, the first time
+        // layout actually runs — which on a real device showed up as
+        // panelSize=360x460 requested but actualFrame height=398 (a card
+        // with few policy rows naturally wants less height). Because
+        // setFrameOrigin only pins the BOTTOM-LEFT corner, that 62pt shrink
+        // came entirely off the TOP — exactly the dead space between the
+        // icon and the card that every prior positioning fix (activation
+        // ordering, preferredEdge, the NSPanel rewrite itself, constraining
+        // to visibleFrame) failed to touch, because none of them were wrong
+        // about x/y — the HEIGHT used to compute y was wrong.
+        //
+        // Fix: measure the real height BEFORE computing origin, instead of
+        // guessing Self.panelHeight and hoping it sticks. First lock in the
+        // width alone (Auto Layout can't resolve a fitting height without
+        // knowing width first, since rows wrap/pill-size against it), force
+        // a synchronous layout pass, then ask the hosting view directly for
+        // its fitting size — the dedicated API for exactly this, rather
+        // than inferring height indirectly from window auto-resize
+        // behavior (which is what went wrong in the first place).
+        panel.setContentSize(NSSize(width: width, height: Self.panelHeight))
+        panel.contentView?.layoutSubtreeIfNeeded()
+        let height = hostingView?.fittingSize.height ?? Self.panelHeight
         panel.setContentSize(NSSize(width: width, height: height))
 
         // Convert the button's own bounds to screen coordinates directly —
@@ -136,7 +169,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // screen coordinates have their origin at the bottom-left, and the
         // menu bar sits at the top of the screen), so pinning the panel's
         // top there — origin.y = minY - height — is what makes it flush
-        // against the icon with zero gap.
+        // against the icon with zero gap, now using the REAL height.
         let buttonScreenFrame = buttonWindow.convertToScreen(button.convert(button.bounds, to: nil))
         var origin = NSPoint(x: buttonScreenFrame.midX - width / 2, y: buttonScreenFrame.minY - height)
 
