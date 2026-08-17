@@ -43,7 +43,9 @@ who already configured it.
   which any MDM — Applivery itself via a Custom Settings payload, Jamf,
   Intune, etc. — can deploy as a managed preference file.
 * **LaunchDaemon:** runs persistently as root, starts on boot, and is
-  restarted automatically by `launchd` if it exits (`KeepAlive`).
+  restarted automatically by `launchd` if it exits (`KeepAlive`) — see
+  [Process Supervision](#process-supervision) below for why this doesn't
+  need anything more than that.
 * **Reporting loop:** wakes on a configurable timer (`interval_sec`, default
   1 hour — 3600s), gathers telemetry, and POSTs it with retry + backoff.
 * **Custom Device Checks:** once per cycle, before reporting, the agent
@@ -57,6 +59,43 @@ who already configured it.
   client certificate and authenticates every subsequent request with it
   instead of the shared `report_secret`, renewing itself automatically —
   see [mTLS Agent Authentication](#mtls-agent-authentication) below.
+
+---
+
+## Process Supervision
+
+The Windows agent needs a second, independent Windows Service (a "mutual
+watchdog") purely because Windows' Service Control Manager does not restart
+a killed service on its own by default. **This agent doesn't need that —
+`launchd` already does the job natively**, so there's deliberately no
+second supervisor process here, and no plan to add one:
+
+* `KeepAlive` (plain boolean `true`, not the `{SuccessfulExit: false}`
+  dictionary form) tells `launchd` to relaunch this daemon after *any* exit —
+  a crash, a `kill -9`, or even a clean zero-status exit — not just an
+  abnormal one. This alone is the equivalent of everything the Windows
+  agent's `AppliverySOARWatchdog` service exists to provide.
+* `ThrottleInterval` (10s) caps how fast `launchd` will restart a job stuck
+  in a crash loop, so a bad Managed Configuration or a genuine bug can't turn
+  into a restart storm hammering this device or the SOAR backend.
+* **Honest limitation, not a new promise:** same as the Windows agent's own
+  README already discloses about its watchdog ("a deterrent, not a hard
+  guarantee"), a local admin can always defeat this — `sudo launchctl
+  bootout system/es.mi-labs.soar.agent` unloads the daemon, and `launchd`
+  will *not* re-bootstrap it on its own until the next boot or an explicit
+  `launchctl bootstrap`. `KeepAlive` protects against the daemon dying on
+  its own; it was never going to protect against someone with root
+  deliberately telling `launchd` to stop supervising it, on either platform.
+* **What's still pending:** once the menu bar app ships (Phase 3 of
+  `backend/docs/macos-agent-parity-roadmap.md`), it registers as its own
+  per-console-user LaunchAgent with the same `KeepAlive`/`ThrottleInterval`
+  treatment — and at that point this daemon also gains a small periodic
+  check that the LaunchAgent is actually loaded for whichever user is at
+  the console (`launchctl print gui/<uid>/...`), re-bootstrapping it if a
+  Managed-Configuration push landed while that user was already logged in
+  (`RunAtLoad` doesn't fire retroactively). There's nothing to check yet —
+  no LaunchAgent exists until Phase 3 creates one — so that piece lands
+  together with the menu bar app rather than as inert code today.
 
 ---
 

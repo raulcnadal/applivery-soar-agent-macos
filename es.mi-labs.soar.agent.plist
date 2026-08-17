@@ -10,8 +10,25 @@
     </array>
     <key>RunAtLoad</key>
     <true/>
+    <!-- KeepAlive as a plain boolean (rather than the {SuccessfulExit: false}
+         dictionary form) restarts this daemon after ANY exit, including a
+         clean/zero-status one — not just a crash. That's deliberate: this is
+         the entire process-supervision story for the daemon (see the
+         "Process Supervision" section in README.md for why this repo does
+         NOT need a second, Windows-watchdog-style mutual-supervisor
+         process — launchd already does that job natively here). -->
     <key>KeepAlive</key>
     <true/>
+    <!-- ThrottleInterval: the minimum number of seconds launchd waits
+         between successive restarts of this job. Without it, a daemon stuck
+         in an immediate-crash loop (e.g. a bad Managed Configuration causing
+         a panic on every start) would be relaunched as fast as the OS can
+         spawn processes, hammering both this machine and the SOAR backend
+         with retry traffic. 10s is generous enough that a normal restart
+         (Managed Configuration reload, transient crash) isn't perceptibly
+         delayed, while still capping a genuine crash-loop's blast radius. -->
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
     <key>StandardOutPath</key>
     <string>/var/log/applivery-soar-agent.log</string>
     <key>StandardErrorPath</key>
