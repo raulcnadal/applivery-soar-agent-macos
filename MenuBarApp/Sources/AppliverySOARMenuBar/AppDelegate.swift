@@ -111,6 +111,28 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             origin.x = max(origin.x, screen.visibleFrame.minX + Self.screenEdgeMargin)
         }
 
+        // TEMPORARY diagnostics for the still-unresolved vertical-gap bug
+        // (github.com/raulcnadal/applivery-soar-agent-macos — this gap
+        // survived 3 prior positioning fixes on top of NSPopover and now
+        // this NSPanel rewrite too, all with no visible change, which means
+        // the bug isn't in the positioning math itself — something upstream
+        // (button.window/button.bounds/convertToScreen) is very likely
+        // reporting an unexpected value on the affected machine). Logging
+        // every input to the computation so the next fix can be based on
+        // the real numbers instead of another blind guess. Safe to remove
+        // once the gap is confirmed fixed.
+        NSLog("""
+        Applivery SOAR [panel-diagnostics]: \
+        button.bounds=\(button.bounds) \
+        buttonWindow.frame=\(buttonWindow.frame) \
+        buttonScreenFrame=\(buttonScreenFrame) \
+        NSStatusBar.system.thickness=\(NSStatusBar.system.thickness) \
+        screen.frame=\(String(describing: (buttonWindow.screen ?? NSScreen.main)?.frame)) \
+        screen.visibleFrame=\(String(describing: (buttonWindow.screen ?? NSScreen.main)?.visibleFrame)) \
+        panelSize=\(width)x\(height) \
+        computedOrigin=\(origin)
+        """)
+
         panel.setFrameOrigin(origin)
         panel.makeKeyAndOrderFront(nil)
         startOutsideClickMonitor()
