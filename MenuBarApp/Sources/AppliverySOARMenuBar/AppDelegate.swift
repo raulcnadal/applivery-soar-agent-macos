@@ -77,20 +77,26 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // likely one of the two guard clauses below is bailing silently.
         // Logging unconditionally at entry, and explicitly on each bail
         // path, so this can't happen again: some line will always print.
-        NSLog("%@", "Applivery SOAR [panel-diagnostics]: togglePanel fired. statusItem=\(String(describing: statusItem)) button=\(String(describing: statusItem?.button)) panel=\(String(describing: panel))")
+        let entryMsg = "Applivery SOAR [panel-diagnostics]: togglePanel fired. statusItem=\(String(describing: statusItem)) button=\(String(describing: statusItem?.button)) panel=\(String(describing: panel))"
+        NSLog("%@", entryMsg)
+        DebugLog.write(entryMsg)
         guard let button = statusItem?.button else {
             NSLog("%@", "Applivery SOAR [panel-diagnostics]: togglePanel bailing — statusItem.button is nil")
+            DebugLog.write("togglePanel bailing — statusItem.button is nil")
             return
         }
         guard let panel else {
             NSLog("%@", "Applivery SOAR [panel-diagnostics]: togglePanel bailing — panel is nil")
+            DebugLog.write("togglePanel bailing — panel is nil")
             return
         }
         if panel.isVisible {
             NSLog("%@", "Applivery SOAR [panel-diagnostics]: closing (panel.isVisible was true)")
+            DebugLog.write("closing (panel.isVisible was true)")
             closePanel()
         } else {
             NSLog("%@", "Applivery SOAR [panel-diagnostics]: opening (panel.isVisible was false)")
+            DebugLog.write("opening (panel.isVisible was false)")
             openPanel(relativeTo: button)
         }
     }
@@ -98,10 +104,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func openPanel(relativeTo button: NSStatusBarButton) {
         guard let panel else {
             NSLog("%@", "Applivery SOAR [panel-diagnostics]: openPanel bailing — panel is nil")
+            DebugLog.write("openPanel bailing — panel is nil")
             return
         }
         guard let buttonWindow = button.window else {
             NSLog("%@", "Applivery SOAR [panel-diagnostics]: openPanel bailing — button.window is nil")
+            DebugLog.write("openPanel bailing — button.window is nil")
             return
         }
 
@@ -166,6 +174,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         computedOrigin=\(origin)
         """
         NSLog("%@", diagnosticsMessage)
+        DebugLog.write(diagnosticsMessage)
 
         panel.setFrameOrigin(origin)
         panel.makeKeyAndOrderFront(nil)
