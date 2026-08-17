@@ -51,7 +51,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private func setUpPopover() {
         let popover = NSPopover()
         popover.behavior = .transient
-        popover.contentSize = NSSize(width: 320, height: 420)
+        // Starting size only — togglePopover recomputes contentSize.width
+        // via CardSizing right before every show() (mirroring the Windows
+        // tray card's own cardWidthPx, recomputed fresh each time
+        // showCard() runs, tray/card.go). Height stays fixed: the card caps
+        // visible policy rows at maxPolicyRows (StatusCardView) with a "+N
+        // more" summary instead of growing unbounded, so a taller value
+        // here isn't needed the way a wider one is.
+        popover.contentSize = NSSize(width: CardSizing.minWidth, height: 460)
         popover.contentViewController = NSHostingController(
             rootView: StatusCardView().environmentObject(store)
         )
@@ -69,19 +76,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // every time) — never more than one report cycle stale.
             store.refresh()
 
-            // Reported bug (field testing, Aug 2026): the popover rendered
-            // far from the actual status item, roughly centered on-screen
-            // instead of anchored below the icon. Root cause: this process
-            // is LSUIElement/.accessory and launchd-started, so it has never
-            // been made the frontmost app — AppKit's screen-coordinate
-            // conversion for NSPopover.show(relativeTo:of:) is unreliable
-            // for a never-activated accessory app in exactly this way. This
-            // is the standard fix: force activation once, immediately before
-            // showing, so AppKit has a valid active-app context to position
-            // relative to. Cheap/idempotent to call every time (no visible
-            // effect once already active).
-            NSApp.activate(ignoringOtherApps: true)
+            // store.refresh() is a synchronous local-file read (StatusStore
+            // .refresh -> StatusCacheStore.read()), so store.cache already
+            // reflects the freshest data by the time this runs — recompute
+            // the card's ideal width against it every time the popover
+            // opens, same "recompute fresh on every show" behavior as the
+            // Windows tray card's own cardWidthPx (tray/card.go).
+            popover.contentSize = NSSize(width: CardSizing.idealWidth(for: store.cache), height: popover.contentSize.height)
+
+            // FIX: Anchor and present the popover FIRST against button.bounds.
+            // Calling NSApp.activate BEFORE popover.show forces AppKit to evaluate
+            // window bounds while the application state is mid-activation, causing
+            // the popover arrow to misalign vertically and drift across the screen.
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+
+            // Make the popover window key and activate the process AFTER anchoring
+            popover.contentViewController?.view.window?.makeKey()
+            NSApp.activate(ignoringOtherApps: true)
         }
     }
 

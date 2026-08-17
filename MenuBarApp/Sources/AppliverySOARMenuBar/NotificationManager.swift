@@ -26,10 +26,14 @@ final class NotificationManager {
         }
     }
 
-    /// title/body match the exact strings the Windows tray's
-    /// checkComplianceTransition passes to showBalloon, so a mixed
-    /// Windows/macOS fleet sees identically-worded alerts. delivered
-    /// immediately (trigger: nil) since this always represents something
+    /// Despite the name (kept for call-site continuity with the original
+    /// compliance-transition use), this is a general-purpose "post a
+    /// notification now" call — StatusCardView's Force report/Force
+    /// evaluate compliance buttons also use it, with the exact same
+    /// title/body strings the Windows tray's triggerForceReport/
+    /// triggerForceEvaluate pass to showBalloon, so a mixed Windows/macOS
+    /// fleet sees identically-worded alerts everywhere this fires. Delivered
+    /// immediately (trigger: nil) since every caller represents something
     /// that just happened, never something scheduled for later.
     func postComplianceAlert(title: String, body: String) {
         let content = UNMutableNotificationContent()

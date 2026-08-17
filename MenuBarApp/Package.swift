@@ -35,7 +35,16 @@ let package = Package(
                 // status card reads identically to its Windows counterpart
                 // instead of silently falling back to San Francisco on a
                 // machine that's never had Outfit installed system-wide.
-                .copy("Resources/Fonts")
+                .copy("Resources/Fonts"),
+                // Header banner logo (see BannerImage.swift) — rasterized
+                // from assets/applivery-bp-login.svg via cairosvg + an
+                // ImageMagick -trim autocrop (removes the SVG's own ~10%
+                // whitespace margin, same fix the Windows tray card's own
+                // banner_*.bmp assets needed — see tray/card.go's
+                // bannerRasterW/H doc comment for the identical rationale),
+                // at 6x the source viewBox for a crisp render even at
+                // extreme Retina scale factors when displayed small.
+                .copy("Resources/Images")
             ]
         )
     ]

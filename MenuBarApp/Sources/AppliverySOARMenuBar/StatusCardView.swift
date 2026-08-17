@@ -16,6 +16,7 @@ struct StatusCardView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
+            banner()
             if let cache = store.cache {
                 header(cache)
                 actionButtons()
@@ -30,10 +31,35 @@ struct StatusCardView: View {
             }
         }
         .padding(16)
-        .frame(width: 320)
+        // No fixed .frame(width:) here on purpose — AppDelegate.togglePopover
+        // sets NSPopover.contentSize dynamically (CardSizing.idealWidth)
+        // right before showing, and NSHostingController hands this view
+        // exactly that width as its bounds. A minWidth-only floor is kept so
+        // the card still looks reasonable if this view is ever rendered
+        // outside that popover context (e.g. Xcode previews).
+        .frame(minWidth: CardSizing.minWidth)
         .onAppear {
             FontLoader.registerBundledFonts()
             store.refresh()
+        }
+    }
+
+    // MARK: - Banner
+
+    /// Header banner logo — matches the Windows tray card's own top-left
+    /// placement (tray/card.go's addHeaderPills/buildCardContent: "banner
+    /// logo top left ... rather than a centered text title"). Shown in
+    /// every state, including the empty/waiting-for-first-report one, same
+    /// as Windows draws it unconditionally before branching on whether any
+    /// status data has loaded yet.
+    @ViewBuilder
+    private func banner() -> some View {
+        if let image = BannerImage.image {
+            Image(nsImage: image)
+                .resizable()
+                .aspectRatio(BannerImage.aspectRatio, contentMode: .fit)
+                .frame(height: 18)
+                .padding(.bottom, 14)
         }
     }
 
@@ -72,6 +98,18 @@ struct StatusCardView: View {
         HStack(spacing: 8) {
             Button(action: {
                 IPCPaths.writeTrigger(at: IPCPaths.triggerReportPath)
+                // Same wording/behavior as the Windows tray's
+                // triggerForceReport (tray/main.go): a balloon/notification
+                // confirming the trigger was sent, since the daemon polls
+                // for and consumes this file on its own schedule (up to
+                // triggerPollInterval, telemetry_macos.go) — this was
+                // reported missing on macOS ("clicking force evaluate and
+                // force report buttons are not triggering a notification,
+                // as opposite to how Windows agent does").
+                NotificationManager.shared.postComplianceAlert(
+                    title: "Applivery SOAR",
+                    body: "Reporting to Applivery SOAR now…"
+                )
                 forceReportTapped = true
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { forceReportTapped = false }
             }) {
@@ -84,6 +122,10 @@ struct StatusCardView: View {
 
             Button(action: {
                 IPCPaths.writeTrigger(at: IPCPaths.triggerEvaluatePath)
+                NotificationManager.shared.postComplianceAlert(
+                    title: "Applivery SOAR",
+                    body: "Evaluating compliance now…"
+                )
                 forceEvaluateTapped = true
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { forceEvaluateTapped = false }
             }) {
@@ -242,10 +284,11 @@ struct StatusCardView: View {
 
     @ViewBuilder
     private func emptyState() -> some View {
+        // No redundant "Applivery SOAR" text title here any more — the
+        // banner() row above already carries that branding, same reasoning
+        // as the Windows card dropping its own centered text title once its
+        // banner logo shipped (tray/card.go).
         VStack(spacing: 8) {
-            Text("Applivery SOAR")
-                .font(.outfit(15, weight: .semibold))
-                .foregroundColor(AppColor.textPrimary)
             Text("Waiting for the first report from this device")
                 .font(.outfit(12))
                 .foregroundColor(AppColor.textMuted)
