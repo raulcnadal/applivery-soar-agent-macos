@@ -3,17 +3,29 @@ import SwiftUI
 import UserNotifications
 
 /// The macOS equivalent of the Windows tray's tray/main.go: owns the
-/// NSStatusItem (menu bar icon), the popover that hosts StatusCardView, and
+/// NSStatusItem (menu bar icon), the panel that hosts StatusCardView, and
 /// kicks off StatusStore's 60s refresh loop. LSUIElement=true in Info.plist
 /// (set on the wrapped .app bundle by build-pkg.yml) keeps this out of the
 /// Dock and Cmd+Tab switcher, same as the Windows tray having no taskbar
 /// window of its own — belt-and-suspenders reinforced here via
 /// NSApp.setActivationPolicy(.accessory) in case LSUIElement is ever
 /// dropped from a future Info.plist edit.
+///
+/// This hosts the card in a custom StatusPanel rather than NSPopover — see
+/// StatusPanel.swift's doc comment for why. openPanel below computes the
+/// panel's screen frame explicitly from the status item button's own
+/// converted screen rect, so its top edge is pinned flush against the
+/// button's bottom edge with zero gap, deterministically, instead of
+/// relying on NSPopover's internal (here, buggy) anchor math.
 final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     private var statusItem: NSStatusItem?
-    private var popover: NSPopover?
+    private var panel: StatusPanel?
+    private var hostingView: NSHostingView<AnyView>?
     private let store = StatusStore()
+    private var outsideClickMonitor: Any?
+
+    private static let panelHeight: CGFloat = 460
+    private static let screenEdgeMargin: CGFloat = 8
 
     func applicationDidFinishLaunching(_ notification: Foundation.Notification) {
         NSApp.setActivationPolicy(.accessory)
@@ -24,13 +36,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         NotificationManager.shared.requestAuthorization()
 
         setUpStatusItem()
-        setUpPopover()
+        setUpPanel()
 
         store.start()
     }
 
     func applicationWillTerminate(_ notification: Foundation.Notification) {
         store.stop()
+        stopOutsideClickMonitor()
     }
 
     private func setUpStatusItem() {
@@ -44,60 +57,97 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         image?.isTemplate = true
         item.button?.image = image
         item.button?.target = self
-        item.button?.action = #selector(togglePopover(_:))
+        item.button?.action = #selector(togglePanel(_:))
         statusItem = item
     }
 
-    private func setUpPopover() {
-        let popover = NSPopover()
-        popover.behavior = .transient
-        // Starting size only — togglePopover recomputes contentSize.width
-        // via CardSizing right before every show() (mirroring the Windows
-        // tray card's own cardWidthPx, recomputed fresh each time
-        // showCard() runs, tray/card.go). Height stays fixed: the card caps
-        // visible policy rows at maxPolicyRows (StatusCardView) with a "+N
-        // more" summary instead of growing unbounded, so a taller value
-        // here isn't needed the way a wider one is.
-        popover.contentSize = NSSize(width: CardSizing.minWidth, height: 460)
-        popover.contentViewController = NSHostingController(
-            rootView: StatusCardView().environmentObject(store)
-        )
-        self.popover = popover
+    private func setUpPanel() {
+        let hosting = NSHostingView(rootView: AnyView(StatusCardView().environmentObject(store)))
+        hostingView = hosting
+        panel = StatusPanel(contentView: hosting)
     }
 
-    @objc private func togglePopover(_ sender: AnyObject?) {
-        guard let button = statusItem?.button, let popover else { return }
-        if popover.isShown {
-            popover.performClose(sender)
+    @objc private func togglePanel(_ sender: AnyObject?) {
+        guard let button = statusItem?.button, let panel else { return }
+        if panel.isVisible {
+            closePanel()
         } else {
-            // Opening the popover is this app's equivalent of the Windows
-            // tray card's own "always re-read on open" behavior
-            // (card.go's buildCardContent calling readStatusCache fresh
-            // every time) — never more than one report cycle stale.
-            store.refresh()
-
-            // store.refresh() is a synchronous local-file read (StatusStore
-            // .refresh -> StatusCacheStore.read()), so store.cache already
-            // reflects the freshest data by the time this runs — recompute
-            // the card's ideal width against it every time the popover
-            // opens, same "recompute fresh on every show" behavior as the
-            // Windows tray card's own cardWidthPx (tray/card.go).
-            popover.contentSize = NSSize(width: CardSizing.idealWidth(for: store.cache), height: popover.contentSize.height)
-
-            // FIX: Anchor and present the popover FIRST against button.bounds.
-            // Calling NSApp.activate BEFORE popover.show forces AppKit to evaluate
-            // window bounds while the application state is mid-activation, causing
-            // the popover arrow to misalign vertically and drift across the screen.
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .maxY)
-
-            // Make the popover window key and activate the process AFTER anchoring
-            popover.contentViewController?.view.window?.makeKey()
-            NSApp.activate(ignoringOtherApps: true)
+            openPanel(relativeTo: button)
         }
     }
 
+    private func openPanel(relativeTo button: NSStatusBarButton) {
+        guard let panel, let buttonWindow = button.window else { return }
+
+        // Opening the panel is this app's equivalent of the Windows tray
+        // card's own "always re-read on open" behavior (card.go's
+        // buildCardContent calling readStatusCache fresh every time) —
+        // never more than one report cycle stale.
+        store.refresh()
+
+        // store.refresh() is a synchronous local-file read (StatusStore
+        // .refresh -> StatusCacheStore.read()), so store.cache already
+        // reflects the freshest data by the time this runs — recompute the
+        // card's ideal width against it every time the panel opens, same
+        // "recompute fresh on every show" behavior as the Windows tray
+        // card's own cardWidthPx (tray/card.go).
+        let width = CardSizing.idealWidth(for: store.cache)
+        let height = Self.panelHeight
+        panel.setContentSize(NSSize(width: width, height: height))
+
+        // Convert the button's own bounds to screen coordinates directly —
+        // no dependency on app/window activation state, which is what made
+        // NSPopover's positioning flaky here across two earlier fix
+        // attempts. minY of this rect is the button's BOTTOM edge (AppKit
+        // screen coordinates have their origin at the bottom-left, and the
+        // menu bar sits at the top of the screen), so pinning the panel's
+        // top there — origin.y = minY - height — is what makes it flush
+        // against the icon with zero gap.
+        let buttonScreenFrame = buttonWindow.convertToScreen(button.convert(button.bounds, to: nil))
+        var origin = NSPoint(x: buttonScreenFrame.midX - width / 2, y: buttonScreenFrame.minY - height)
+
+        if let screen = buttonWindow.screen ?? NSScreen.main {
+            origin.x = min(origin.x, screen.visibleFrame.maxX - width - Self.screenEdgeMargin)
+            origin.x = max(origin.x, screen.visibleFrame.minX + Self.screenEdgeMargin)
+        }
+
+        panel.setFrameOrigin(origin)
+        panel.makeKeyAndOrderFront(nil)
+        startOutsideClickMonitor()
+    }
+
+    private func closePanel() {
+        panel?.orderOut(nil)
+        stopOutsideClickMonitor()
+    }
+
+    /// NSPopover's .transient behavior (auto-close on an outside click) has
+    /// no equivalent on NSPanel, so it's reimplemented here with a global
+    /// event monitor. A *global* monitor only fires for events delivered to
+    /// OTHER processes (Apple's own documented behavior), which is exactly
+    /// what's wanted: a click on this app's own status item button is
+    /// handled directly by togglePanel's own isVisible check (so clicking
+    /// the icon again correctly toggles the panel closed instead of the
+    /// monitor and the button action racing each other), and a click
+    /// anywhere inside this app's own panel (e.g. the Force report button)
+    /// never reaches this monitor at all since it belongs to this process —
+    /// so it can't be mistaken for an "outside" click either.
+    private func startOutsideClickMonitor() {
+        stopOutsideClickMonitor()
+        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in
+            self?.closePanel()
+        }
+    }
+
+    private func stopOutsideClickMonitor() {
+        if let outsideClickMonitor {
+            NSEvent.removeMonitor(outsideClickMonitor)
+        }
+        outsideClickMonitor = nil
+    }
+
     /// Show the compliance-transition banner even while this app is the
-    /// foreground/active app (e.g. the popover is open when a transition
+    /// foreground/active app (e.g. the panel is open when a transition
     /// fires) — without this override, UNUserNotificationCenter's default
     /// behavior suppresses banners for the frontmost app, which would mean
     /// a notification silently never appears at the one moment a user is

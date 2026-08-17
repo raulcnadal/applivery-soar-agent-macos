@@ -31,12 +31,12 @@ struct StatusCardView: View {
             }
         }
         .padding(16)
-        // No fixed .frame(width:) here on purpose — AppDelegate.togglePopover
-        // sets NSPopover.contentSize dynamically (CardSizing.idealWidth)
-        // right before showing, and NSHostingController hands this view
-        // exactly that width as its bounds. A minWidth-only floor is kept so
-        // the card still looks reasonable if this view is ever rendered
-        // outside that popover context (e.g. Xcode previews).
+        // No fixed .frame(width:) here on purpose — AppDelegate.openPanel
+        // sets StatusPanel's content size dynamically (CardSizing.idealWidth)
+        // right before showing, and NSHostingView hands this view exactly
+        // that width as its bounds. A minWidth-only floor is kept so the
+        // card still looks reasonable if this view is ever rendered outside
+        // that panel context (e.g. Xcode previews).
         .frame(minWidth: CardSizing.minWidth)
         .onAppear {
             FontLoader.registerBundledFonts()
