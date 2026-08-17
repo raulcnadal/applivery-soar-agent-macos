@@ -1,7 +1,7 @@
 import AppKit
 
-/// Computes the popover's ideal content width from whatever status data is
-/// currently cached — the SwiftUI/NSPopover analog of the Windows tray
+/// Computes the panel's ideal content width from whatever status data is
+/// currently cached — the SwiftUI/StatusPanel analog of the Windows tray
 /// card's own dynamic cardWidthPx (tray/card.go's buildCardContent):
 /// starts from a fixed floor, grows to fit the widest thing it actually has
 /// to show (the "Force evaluate compliance" button label, a long device
