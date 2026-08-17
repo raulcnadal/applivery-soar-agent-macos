@@ -159,7 +159,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // behavior (which is what went wrong in the first place).
         panel.setContentSize(NSSize(width: width, height: Self.panelHeight))
         panel.contentView?.layoutSubtreeIfNeeded()
-        let height = hostingView?.fittingSize.height ?? Self.panelHeight
+        let bodyHeight = hostingView?.fittingSize.height ?? Self.panelHeight
+        // + arrowHeight: the window needs to be tall enough for the card
+        // body PLUS the triangle notch sitting on top of it (see
+        // StatusPanel.updateArrowMask) — the notch isn't extra window
+        // padding, it's a real part of the panel's total height, or its
+        // apex would get clipped at the window's own top edge.
+        let height = bodyHeight + StatusPanel.arrowHeight
         panel.setContentSize(NSSize(width: width, height: height))
 
         // Convert the button's own bounds to screen coordinates directly —
@@ -168,8 +174,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
         // attempts. minY of this rect is the button's BOTTOM edge (AppKit
         // screen coordinates have their origin at the bottom-left, and the
         // menu bar sits at the top of the screen), so pinning the panel's
-        // top there — origin.y = minY - height — is what makes it flush
-        // against the icon with zero gap, now using the REAL height.
+        // top there — origin.y = minY - height — is what makes the arrow's
+        // apex touch the icon with zero gap, now using the REAL height.
         let buttonScreenFrame = buttonWindow.convertToScreen(button.convert(button.bounds, to: nil))
         var origin = NSPoint(x: buttonScreenFrame.midX - width / 2, y: buttonScreenFrame.minY - height)
 
@@ -177,6 +183,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             origin.x = min(origin.x, screen.visibleFrame.maxX - width - Self.screenEdgeMargin)
             origin.x = max(origin.x, screen.visibleFrame.minX + Self.screenEdgeMargin)
         }
+
+        // The arrow needs to point at the icon's actual x position, not
+        // necessarily the panel's own horizontal center — those differ
+        // whenever the clamp two lines above kicks in (icon near a screen
+        // edge). Expressed relative to the panel's own left edge, which is
+        // the coordinate space updateArrowMask's path is built in.
+        panel.updateArrowMask(width: width, bodyHeight: bodyHeight, arrowCenterX: buttonScreenFrame.midX - origin.x)
 
         // TEMPORARY diagnostics for the still-unresolved vertical-gap bug
         // (github.com/raulcnadal/applivery-soar-agent-macos — this gap

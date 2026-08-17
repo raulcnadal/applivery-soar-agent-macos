@@ -26,6 +26,15 @@ import AppKit
 /// no longer needs NSApp.activate(ignoringOtherApps:) to work around, since
 /// positioning is no longer tied to activation state at all.
 final class StatusPanel: NSPanel {
+    // Shared with AppDelegate.openPanel, which needs these same numbers to
+    // size the window (body height + arrowHeight) and to inset the hosted
+    // SwiftUI content below the arrow strip.
+    static let cornerRadius: CGFloat = 12
+    static let arrowWidth: CGFloat = 16
+    static let arrowHeight: CGFloat = 8
+
+    private let effect = NSVisualEffectView()
+
     init(contentView: NSView) {
         super.init(
             contentRect: .zero,
@@ -49,24 +58,63 @@ final class StatusPanel: NSPanel {
         // material Apple's own popovers use, so switching away from
         // NSPopover doesn't lose that look (the user explicitly called this
         // out as something to keep).
-        let effect = NSVisualEffectView()
         effect.material = .popover
         effect.blendingMode = .behindWindow
         effect.state = .active
         effect.wantsLayer = true
-        effect.layer?.cornerRadius = 12
-        effect.layer?.masksToBounds = true
+        // The rounded-rect-plus-triangle mask (updateArrowMask below)
+        // replaces a plain cornerRadius+masksToBounds here — that only
+        // gave a rectangle with rounded corners, no way to poke a triangle
+        // notch out through the top edge for the arrow.
 
         contentView.translatesAutoresizingMaskIntoConstraints = false
         effect.addSubview(contentView)
         NSLayoutConstraint.activate([
             contentView.leadingAnchor.constraint(equalTo: effect.leadingAnchor),
             contentView.trailingAnchor.constraint(equalTo: effect.trailingAnchor),
-            contentView.topAnchor.constraint(equalTo: effect.topAnchor),
+            // Inset from the top by arrowHeight, not pinned flush — that
+            // strip is reserved for the arrow notch (drawn into the mask,
+            // not part of the card content), so text/buttons don't render
+            // underneath or get clipped by it.
+            contentView.topAnchor.constraint(equalTo: effect.topAnchor, constant: Self.arrowHeight),
             contentView.bottomAnchor.constraint(equalTo: effect.bottomAnchor),
         ])
 
         self.contentView = effect
+    }
+
+    /// Rebuilds the mask that gives this panel its rounded-card-with-a-
+    /// speech-bubble-tail shape: a rounded rect for the card body (bottom
+    /// `bodyHeight` points) unioned with a small upward-pointing triangle
+    /// sitting on top of it (the remaining `arrowHeight` points), centered
+    /// on `arrowCenterX` — the status item icon's actual x position, not
+    /// necessarily the panel's own horizontal center, since openPanel
+    /// clamps the panel's x origin to stay on-screen near display edges.
+    /// Called fresh every time the panel opens (AppDelegate.openPanel),
+    /// since width/bodyHeight both vary with the card's current content.
+    func updateArrowMask(width: CGFloat, bodyHeight: CGFloat, arrowCenterX: CGFloat) {
+        let totalHeight = bodyHeight + Self.arrowHeight
+        let path = CGMutablePath()
+        path.addRoundedRect(
+            in: CGRect(x: 0, y: 0, width: width, height: bodyHeight),
+            cornerWidth: Self.cornerRadius,
+            cornerHeight: Self.cornerRadius
+        )
+
+        let halfArrow = Self.arrowWidth / 2
+        // Keep the triangle from sliding into (or past) a rounded corner
+        // if the icon sits very close to the panel's clamped edge.
+        let centerX = min(max(arrowCenterX, Self.cornerRadius + halfArrow), width - Self.cornerRadius - halfArrow)
+        path.move(to: CGPoint(x: centerX - halfArrow, y: bodyHeight))
+        path.addLine(to: CGPoint(x: centerX, y: totalHeight))
+        path.addLine(to: CGPoint(x: centerX + halfArrow, y: bodyHeight))
+        path.closeSubpath()
+
+        let mask = CAShapeLayer()
+        mask.path = path
+        mask.fillColor = NSColor.black.cgColor
+        mask.frame = CGRect(x: 0, y: 0, width: width, height: totalHeight)
+        effect.layer?.mask = mask
     }
 
     override var canBecomeKey: Bool { true }
