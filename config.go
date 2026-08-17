@@ -67,7 +67,24 @@ func (c Config) IsConfigured() bool {
 	return c.WorkspaceSlug != "" && (c.ReportSecret != "" || c.BootstrapToken != "")
 }
 
-func LoadConfig() Config {
+// configPath is the managed-config file location. Extracted to a const
+// since both LoadConfig and loadConfigQuiet need it.
+const configPath = "/Library/Preferences/es.mi-labs.soar.agent.json"
+
+// loadConfigQuiet reads/parses the managed config file WITHOUT emitting
+// LoadConfig's "Config loaded: ..." summary line (found=false is silent
+// too). Malformed JSON is still logged — always actionable — but "found" vs
+// "not found" and the field-by-field summary are left to LoadConfig's
+// caller.
+//
+// Exists for callers on a much tighter cadence than a real report cycle —
+// e.g. runAgentLoop's maybeResetTicker, invoked every triggerPollInterval
+// (2s) — where calling LoadConfig() directly caused it to print "Config
+// loaded: ..." every 2 seconds forever on a real device, drowning out every
+// other diagnostic line in applivery-soar-agent.err (found during macOS
+// field testing, Aug 2026). Same pattern applies to ensureMtlsIdentity,
+// which now takes an already-loaded Config instead of loading its own.
+func loadConfigQuiet() (Config, bool) {
 	cfg := Config{
 		BaseURL:         "https://soar.mi-labs.es",
 		WorkspaceSlug:   "",
@@ -78,16 +95,24 @@ func LoadConfig() Config {
 		ReportApps:      false,
 	}
 
-	configPath := "/Library/Preferences/es.mi-labs.soar.agent.json"
 	file, err := os.Open(configPath)
 	if err != nil {
-		log.Printf("No managed config found at %s — WorkspaceSlug plus either ReportSecret or BootstrapToken must be set there before this agent can report anything.", configPath)
-		return cfg
+		return cfg, false
 	}
 	defer file.Close()
 
 	if err := json.NewDecoder(file).Decode(&cfg); err != nil {
 		log.Printf("Failed to parse config: %v. Using defaults.", err)
+	}
+
+	return cfg, true
+}
+
+func LoadConfig() Config {
+	cfg, found := loadConfigQuiet()
+	if !found {
+		log.Printf("No managed config found at %s — WorkspaceSlug plus either ReportSecret or BootstrapToken must be set there before this agent can report anything.", configPath)
+		return cfg
 	}
 
 	log.Printf(

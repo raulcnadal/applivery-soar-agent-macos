@@ -99,7 +99,8 @@ func clampInterval(sec int) time.Duration {
 // and calls ticker.Reset only when it actually changed. Ported from the
 // Windows agent's identically-named function in telemetry_windows.go.
 func maybeResetTicker(ticker *time.Ticker, current time.Duration) time.Duration {
-	sec := LoadConfig().IntervalSec
+	quietCfg, _ := loadConfigQuiet()
+	sec := quietCfg.IntervalSec
 	if remote := atomic.LoadInt32(&remoteIntervalSecAtomic); remote > 0 {
 		sec = int(remote)
 	}
@@ -180,8 +181,9 @@ func gatherAndReport() {
 	// on a separate ticker. Always best-effort: never blocks or fails this
 	// report cycle, whatever auth this device currently has (legacy secret,
 	// or a valid certificate) is what sendWebhook/fetchCustomChecks below
-	// will use.
-	ensureMtlsIdentity()
+	// will use. Takes the config already loaded above rather than loading
+	// (and logging) its own copy.
+	ensureMtlsIdentity(config)
 
 	log.Println("Gathering telemetry...")
 

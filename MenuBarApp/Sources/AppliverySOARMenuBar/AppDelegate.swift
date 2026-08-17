@@ -68,6 +68,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
             // (card.go's buildCardContent calling readStatusCache fresh
             // every time) — never more than one report cycle stale.
             store.refresh()
+
+            // Reported bug (field testing, Aug 2026): the popover rendered
+            // far from the actual status item, roughly centered on-screen
+            // instead of anchored below the icon. Root cause: this process
+            // is LSUIElement/.accessory and launchd-started, so it has never
+            // been made the frontmost app — AppKit's screen-coordinate
+            // conversion for NSPopover.show(relativeTo:of:) is unreliable
+            // for a never-activated accessory app in exactly this way. This
+            // is the standard fix: force activation once, immediately before
+            // showing, so AppKit has a valid active-app context to position
+            // relative to. Cheap/idempotent to call every time (no visible
+            // effect once already active).
+            NSApp.activate(ignoringOtherApps: true)
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         }
     }
