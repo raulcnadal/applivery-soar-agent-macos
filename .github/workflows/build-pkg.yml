@@ -26,6 +26,17 @@ jobs:
         with:
           go-version: '1.21'
 
+      # go.sum doesn't exist in this repo yet as of the fsnotify dependency
+      # landing (eventwatch_macos.go, Event Watches / macOS parity roadmap
+      # Phase 5) — the development sandbox that wrote this code has no
+      # network access to the Go module checksum database to generate it by
+      # hand. This runner does, so `go mod tidy` here is the actual source
+      # of truth for go.sum (and would also correct go.mod if it were ever
+      # hand-edited into an inconsistent state) before either GOARCH build
+      # below runs.
+      - name: go mod tidy
+        run: go mod tidy
+
       - name: Build Binary (universal — arm64 + amd64)
         run: |
           mkdir -p build/payload/usr/local/bin

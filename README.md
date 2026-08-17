@@ -64,6 +64,11 @@ who already configured it.
   report/Force evaluate buttons — and posts a notification when compliance
   changes, all backed by a small file-based IPC contract with this daemon —
   see [Menu Bar App](#menu-bar-app) below.
+* **Event Watches (optional, per workspace):** once an admin defines a watch
+  in **Settings → Event-Driven Detection**, this agent monitors that signal
+  continuously between report cycles — a file/folder change or a launchd
+  job's state — instead of waiting for the next scheduled poll, see [Event
+  Watches](#event-watches) below.
 
 ---
 
@@ -342,6 +347,63 @@ a process that simply isn't running — is a normal value, not an error. The
 `command` checker type runs exactly what's typed into the dashboard as root
 (this agent's own LaunchDaemon privilege) with no sandboxing — Settings
 surfaces an explicit warning about this; use it deliberately.
+
+---
+
+## Event Watches
+
+Custom Device Checks and the reporting loop both run once per `interval_sec`
+cycle — fine for most posture data, but too slow for "tell me the moment
+this specific thing happens." **Event Watches** (Settings →
+Event-Driven Detection) fill that gap: once an admin defines one, this agent
+monitors that signal continuously between report cycles and calls SOAR back
+the moment its own local debounce goes quiet, instead of waiting for the
+next scheduled poll. This **supplements** the report cycle, it never
+replaces it — a device that's offline, or hasn't picked up a watch yet,
+keeps reporting exactly as before.
+
+Two watch types exist on macOS, both implemented in `eventwatch_macos.go`:
+
+| Watch type | What it does | macOS implementation |
+| :--- | :--- | :--- |
+| `fsEventsPath` | Fires when a file or directory changes | [`fsnotify`](https://github.com/fsnotify/fsnotify) (kqueue-based, pure Go, no CGo) — watches the given `path` directly; with `recursive: true` on a directory, every subdirectory that exists when the watch starts is also added |
+| `launchdJobState` | Fires when a launchd job's loaded/running state changes, including a crash-restart | Polls `launchctl list <label>` every 3s and compares the (loaded, PID, LastExitStatus) tuple against the previous poll — see below for why this is polling, not a true kernel notification |
+
+Both watch types share the daemon's per-key debouncer (a direct port of the
+Windows agent's own — see `eventwatch_macos.go`'s top-of-file doc comment):
+a burst of raw filesystem events collapses into one clean notify, sent only
+after the signal goes quiet for `debounceMs` (5s by default, admin-editable
+1-60s per watch).
+
+**Why `launchdJobState` polls instead of subscribing to a real notification:**
+unlike Windows' `RegNotifyChangeKeyValue` (registry) or an ETW session
+(process lifecycle), there is no native "tell me when a launchd job's state
+changes" API reachable from pure Go without CGo. Polling every 3s is a
+disclosed, deliberate trade-off — it keeps this whole agent CGo-free and
+cross-compilable on any CI runner with just the Go toolchain, the same
+property that made `fsnotify` the choice for `fsEventsPath` over raw
+FSEvents/CoreServices. A `launchdJobState` watch's first poll only
+establishes a baseline and never fires on its own — the same "don't notify
+about whatever state you found the world in" rule the menu bar app's own
+compliance-transition notifications follow.
+
+**Sync model:** `syncEventWatches` runs once per report cycle (same call
+site as Custom Device Checks), polling `GET
+/api/device-data/event-watches?platform=macos` and diffing the result
+against whichever watchers are currently running — unchanged watches are
+left alone, changed ones are stopped and restarted, new ones are started,
+and anything no longer returned is stopped. The watcher goroutines
+themselves then run independently of the report ticker until the next sync.
+A workspace-wide kill switch (Settings → Event-Driven Detection → Rollout
+controls) stops every watch at the next poll regardless of individual watch
+settings.
+
+**Remote report-interval override:** the same poll response can carry a
+SOAR-pushed `remoteIntervalSec`, letting an admin safely relax this device's
+own `interval_sec` (e.g. from 1h to 4h) once event-driven watches are
+confirmed catching what matters — the agent's report ticker hot-resets to
+match on the very next cycle, no restart needed (same mechanism the Windows
+agent's own Phase 4 work introduced).
 
 ---
 
