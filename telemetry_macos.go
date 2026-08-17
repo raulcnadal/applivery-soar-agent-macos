@@ -6,12 +6,29 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"log"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
 )
+
+// responseBodySnippet reads and trims a response body for logging alongside
+// a non-2xx status code — without this, a rejection from e.g. mTLS identity
+// verification is invisible on this end (the backend's errorHandler
+// middleware deliberately never logs an HttpError server-side either), so
+// the only place the actual reason ever surfaces is this log line. Capped
+// at 500 bytes — plenty for a JSON error detail, small enough to never
+// bloat the launchd log even if a misconfigured proxy returns an HTML error
+// page instead of JSON. Ported from the Windows agent's identical helper.
+func responseBodySnippet(resp *http.Response) string {
+	if resp == nil || resp.Body == nil {
+		return ""
+	}
+	body, _ := io.ReadAll(io.LimitReader(resp.Body, 500))
+	return strings.TrimSpace(string(body))
+}
 
 type DeviceData struct {
 	Platform     string                 `json:"platform"`
@@ -80,9 +97,18 @@ func runAgentLoop(stopChan <-chan struct{}) {
 func gatherAndReport() {
 	config := LoadConfig()
 	if !config.IsConfigured() {
-		log.Println("No WorkspaceSlug/ReportSecret in Managed Configuration yet — skipping this cycle. Deploy /Library/Preferences/es.mi-labs.soar.agent.json to start reporting.")
+		log.Println("No WorkspaceSlug plus ReportSecret/BootstrapToken in Managed Configuration yet — skipping this cycle. Deploy /Library/Preferences/es.mi-labs.soar.agent.json to start reporting.")
 		return
 	}
+
+	// mTLS agent authentication (Phase 1 — see mtls_macos.go and
+	// backend/docs/macos-agent-parity-roadmap.md §1) — checks/advances this
+	// device's registration or renewal state every report cycle rather than
+	// on a separate ticker. Always best-effort: never blocks or fails this
+	// report cycle, whatever auth this device currently has (legacy secret,
+	// or a valid certificate) is what sendWebhook/fetchCustomChecks below
+	// will use.
+	ensureMtlsIdentity()
 
 	log.Println("Gathering telemetry...")
 
@@ -131,9 +157,13 @@ func gatherAndReport() {
 // sendWebhook is shared by both the attributes report and the (optional)
 // app-inventory report — same endpoint family (POST /api/device-data/*),
 // same header pair, same retry/backoff policy. Accepts any JSON-marshalable
-// payload so both DeviceData and AppsPayload can reuse it.
+// payload so both DeviceData and AppsPayload can reuse it. Goes through
+// mtlsHTTPClient/applyLegacyAuthIfNeeded (mtls_macos.go) rather than
+// deciding auth for itself — once this device has a client certificate,
+// X-Device-Report-Secret is simply omitted and the certificate presented
+// during the TLS handshake authenticates the request instead.
 func sendWebhook(targetURL string, config Config, payload interface{}) {
-	client := &http.Client{Timeout: 15 * time.Second}
+	client := mtlsHTTPClient(15 * time.Second)
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
 		log.Printf("Error marshaling JSON payload: %v", err)
@@ -150,7 +180,7 @@ func sendWebhook(targetURL string, config Config, payload interface{}) {
 
 		req.Header.Set("Content-Type", "application/json")
 		req.Header.Set("X-Workspace-Slug", config.WorkspaceSlug)
-		req.Header.Set("X-Device-Report-Secret", config.ReportSecret)
+		applyLegacyAuthIfNeeded(req, config)
 
 		resp, err := client.Do(req)
 		if err == nil {
@@ -159,7 +189,7 @@ func sendWebhook(targetURL string, config Config, payload interface{}) {
 				log.Printf("Report to %s sent successfully.", targetURL)
 				return
 			}
-			log.Printf("%s returned non-success status: %d", targetURL, resp.StatusCode)
+			log.Printf("%s returned non-success status %d: %s", targetURL, resp.StatusCode, responseBodySnippet(resp))
 		} else {
 			log.Printf("Attempt %d: Error POSTing to %s: %v", i, targetURL, err)
 		}

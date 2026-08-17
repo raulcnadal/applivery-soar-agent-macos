@@ -52,28 +52,36 @@ who already configured it.
   the results in the same report — no separate call, no local state kept
   between cycles. A check created or edited in the dashboard takes effect on
   this device's very next report.
+* **mTLS Agent Authentication (optional, per workspace):** once a
+  `bootstrap_token` is configured, this device registers a per-device
+  client certificate and authenticates every subsequent request with it
+  instead of the shared `report_secret`, renewing itself automatically —
+  see [mTLS Agent Authentication](#mtls-agent-authentication) below.
 
 ---
 
 ## Configuration Reference (Managed Configuration)
 
 All values live in `/Library/Preferences/es.mi-labs.soar.agent.json`. There
-is no compiled-in default for `workspace_slug` or `report_secret` — until
-both are set, the agent logs a warning each cycle and reports nothing.
+is no compiled-in default for `workspace_slug` — until it plus either
+`report_secret` or `bootstrap_token` are set, the agent logs a warning each
+cycle and reports nothing.
 
 | Key | Type | Default | Description |
 | :--- | :--- | :--- | :--- |
-| `base_url` | String | `https://soar.mi-labs.es` | Base URL of your Applivery SOAR instance. |
+| `base_url` | String | `https://soar.mi-labs.es` | Base URL used for reporting (report, report-apps, custom-checks, agent-status) AND certificate renewal. Once a workspace uses mTLS, this must point at the dedicated agent subdomain (Settings → mTLS Agent Authentication → Reverse Proxy Configuration) — renewal always requires a valid client certificate, so it must go through that vhost. |
+| `register_url` | String | *(none — optional, falls back to `base_url`)* | Base URL used ONLY for the one-time `/api/device-mtls/register` call. `/register` never presents a client cert (the bootstrap token is the credential), so it doesn't need the mTLS vhost's health at all — setting this to the ordinary dashboard domain decouples first-time enrollment from whether that vhost happens to be up. Leave unset for the historical single-URL behavior. |
 | `workspace_slug` | String | *(none — required)* | Your workspace identifier. |
-| `report_secret` | String | *(none — required)* | Device-report webhook secret (Settings → Device Data Webhook → Generate webhook secret). |
+| `report_secret` | String | *(none — optional)* | Device-report webhook secret (Settings → Device Data Webhook → Generate webhook secret). Either this or `bootstrap_token` must be set — an mTLS-only deployment (only `bootstrap_token` set) is fully supported. |
+| `bootstrap_token` | String | *(none — optional)* | The workspace's Global Bootstrap Token (Settings → mTLS Agent Authentication → Generate). The SAME value is pushed to every device in the fleet — see [mTLS Agent Authentication](#mtls-agent-authentication) below. Safe to leave unset if your workspace hasn't enabled mTLS yet. |
 | `interval_sec` | Integer | `3600` | Reporting interval in seconds (values under 30 fall back to the default). |
 | `report_bitlocker` | Boolean | `true` | Include FileVault disk-encryption status. (Same JSON key name as the Windows agent's BitLocker toggle, for a shared Managed Configuration template — on macOS it controls FileVault.) |
 | `report_firewall` | Boolean | `true` | Include Application Firewall status. |
 | `report_apps` | Boolean | `false` | Include the full installed-application inventory. |
 
 Settings → Device Data Webhook generates a ready-to-deploy `.json` file with
-all of these pre-filled for your workspace — you shouldn't need to type any
-of this by hand.
+all of these pre-filled for your workspace (including `bootstrap_token`, if
+one is configured) — you shouldn't need to type any of this by hand.
 
 ### Example
 
@@ -82,12 +90,73 @@ of this by hand.
   "base_url": "https://soar.mi-labs.es",
   "workspace_slug": "your-workspace",
   "report_secret": "<generated in Settings>",
+  "bootstrap_token": "<optional — Settings → mTLS Agent Authentication>",
   "interval_sec": 3600,
   "report_bitlocker": true,
   "report_firewall": true,
   "report_apps": true
 }
 ```
+
+---
+
+## mTLS Agent Authentication
+
+The agent can authenticate to SOAR with a per-device client certificate
+instead of the shared `report_secret` — see
+`backend/docs/mtls-agent-auth-roadmap.md` and
+`backend/docs/macos-agent-parity-roadmap.md` §1 (main SOAR repo) for the
+full design. This is opt-in per workspace; nothing changes for a device
+that never receives a `bootstrap_token`. Client logic and endpoints are
+identical to the Windows agent's own mTLS support — only the keystore
+location differs.
+
+Registration uses a single **Global Bootstrap Token**: one value, the SAME
+on every device in the fleet, pushed via one Managed Configuration policy —
+not a per-device or one-time credential. A device proves it's allowed to
+register with that token PLUS a live check (done server-side) that its own
+serial number is currently a known, enrolled device in this workspace's
+Applivery UEM fleet. Only devices Applivery already knows about can ever
+register.
+
+1. **First run with `bootstrap_token` set:** the agent generates an ECDSA
+   P-256 keypair locally (the private key never leaves the device), builds a
+   CSR, and registers with the backend over plain HTTPS using the token —
+   against `register_url` if set, otherwise `base_url`. The backend
+   validates the token, checks the device's serial number against
+   Applivery's live fleet, and — if both check out — issues a certificate
+   immediately (no admin approval step; a bootstrap token is unattended by
+   design). The issued certificate + key are stored under
+   `/Library/Application Support/Applivery/SOAR/mtls/`, root-owned (`0700`
+   directory, `0600` files) — since this agent already runs as root via
+   LaunchDaemon, plain Unix permissions already are the access-control
+   boundary here, no separate ACL tool needed (unlike Windows, which shells
+   out to `icacls` to achieve the same restriction). This is a v1
+   file-based keystore, not the real macOS Keychain — see the roadmap doc's
+   disclosed-gap callout for why that's a deliberate, not accidental,
+   simplification. A device that already has an active certificate can
+   never be silently re-registered this way — the backend rejects it — so
+   leaving `bootstrap_token` in place after enrollment is harmless.
+2. **Every report cycle afterward:** if a valid certificate is loaded, ALL
+   requests to the backend (reports, custom-checks poll) present it via
+   mTLS instead of sending `X-Device-Report-Secret` — the two auth modes
+   are never mixed on the same request.
+3. **Renewal is automatic and silent:** once less than a third of the
+   certificate's total validity window remains, the agent generates a fresh
+   keypair+CSR and renews using its current (still-valid) certificate to
+   authenticate the renewal call — no bootstrap token is ever needed again
+   after the first successful registration.
+4. **If registration/renewal fails** (backend unreachable, no CA configured
+   yet, token wrong, serial number not yet visible to Applivery), the agent
+   just keeps using whatever auth it already has (the legacy secret, or its
+   current not-yet-expired certificate) and retries on the next report
+   cycle — never blocks or fails a report because of this.
+
+**Reverse proxy**: the proxy in front of the backend must terminate the mTLS
+handshake and forward the verified client identity via headers — Settings →
+mTLS Agent Authentication shows the exact nginx/NPM config (and the
+equivalent for Traefik/Caddy/HAProxy) plus whether the internal proxy secret
+is currently configured on this backend.
 
 ---
 
@@ -150,7 +219,10 @@ surfaces an explicit warning about this; use it deliberately.
 * **Headers on every request:**
   * `Content-Type: application/json` (report calls only)
   * `X-Workspace-Slug: <workspace_slug>`
-  * `X-Device-Report-Secret: <report_secret>`
+  * `X-Device-Report-Secret: <report_secret>` — omitted once this device has
+    a valid mTLS client certificate loaded (see [mTLS Agent
+    Authentication](#mtls-agent-authentication) above); the certificate
+    presented during the TLS handshake authenticates the request instead.
 
 ### Device report payload
 
@@ -266,17 +338,20 @@ sudo launchctl bootstrap system /Library/LaunchDaemons/es.mi-labs.soar.agent.pli
   ```
 
   Every cycle logs the resolved Managed Configuration (`Config loaded:
-  BaseURL=... WorkspaceSlug=... ReportSecret=(set, N chars)...` — the secret
-  itself is never logged) so you can immediately tell whether
+  BaseURL=... RegisterURL=... WorkspaceSlug=... ReportSecret=(set, N
+  chars)... BootstrapToken=(set, N chars)...` — neither secret's actual
+  value is ever logged) so you can immediately tell whether
   `/Library/Preferences/es.mi-labs.soar.agent.json` was actually read, plus
   the serial number it's reporting under and the HTTP result of each report
-  attempt.
+  attempt. `mTLS: ...` log lines track registration/renewal separately —
+  see [mTLS Agent Authentication](#mtls-agent-authentication) above.
 * **Connectivity:** confirm outbound HTTPS to your SOAR instance's `base_url`
   is permitted through any local firewall or proxy.
-* **"No WorkspaceSlug/ReportSecret" in the logs:** the managed preference
-  file hasn't been deployed yet, or is missing `workspace_slug`/
-  `report_secret` — see *Configuration Reference* above. Confirm what's
-  actually on disk with `cat /Library/Preferences/es.mi-labs.soar.agent.json`.
+* **"No WorkspaceSlug plus ReportSecret/BootstrapToken" in the logs:** the
+  managed preference file hasn't been deployed yet, or is missing
+  `workspace_slug` plus both `report_secret` and `bootstrap_token` — see
+  *Configuration Reference* above. Confirm what's actually on disk with
+  `cat /Library/Preferences/es.mi-labs.soar.agent.json`.
 * **Config was just deployed but the log still shows the old values:** as of
   this build, Managed Configuration is re-read from disk on every report
   cycle (default hourly) — no restart needed, it'll pick it up on the next

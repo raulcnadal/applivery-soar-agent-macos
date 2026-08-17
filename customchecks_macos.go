@@ -49,14 +49,14 @@ type CustomCheckResult struct {
 func fetchCustomChecks(baseURL *url.URL, config Config) []CustomCheckDef {
 	checksURL := baseURL.ResolveReference(&url.URL{Path: "/api/device-data/custom-checks", RawQuery: "platform=macos"}).String()
 
-	client := &http.Client{Timeout: 15 * time.Second}
+	client := mtlsHTTPClient(15 * time.Second)
 	req, err := http.NewRequest("GET", checksURL, nil)
 	if err != nil {
 		log.Printf("Error building custom-checks poll request: %v", err)
 		return nil
 	}
 	req.Header.Set("X-Workspace-Slug", config.WorkspaceSlug)
-	req.Header.Set("X-Device-Report-Secret", config.ReportSecret)
+	applyLegacyAuthIfNeeded(req, config)
 
 	resp, err := client.Do(req)
 	if err != nil {
@@ -66,7 +66,7 @@ func fetchCustomChecks(baseURL *url.URL, config Config) []CustomCheckDef {
 	defer resp.Body.Close()
 
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("Custom checks poll returned HTTP %d — skipping this cycle's custom checks", resp.StatusCode)
+		log.Printf("Custom checks poll returned HTTP %d — skipping this cycle's custom checks: %s", resp.StatusCode, responseBodySnippet(resp))
 		return nil
 	}
 
