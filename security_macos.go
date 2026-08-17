@@ -48,7 +48,17 @@ func GetFirewallStatus() bool {
 	if err != nil {
 		return false
 	}
-	return strings.Contains(string(out), "State = enabled")
+	// Real output is "Firewall is enabled. (State = 1)" or
+	// "Firewall is disabled. (State = 0)" — this previously checked for
+	// the substring "State = enabled", which never appears in the actual
+	// command output in any macOS version, so this always returned false
+	// regardless of the real firewall state (confirmed against a real
+	// device: firewall was on, agent still reported it disabled).
+	// "State = 1" is the stable, non-localized part of the output (the
+	// "Firewall is enabled."/"Firewall is disabled." prose prefix could in
+	// principle be localized on a non-English system, the numeric state
+	// suffix shouldn't be).
+	return strings.Contains(string(out), "State = 1")
 }
 
 func GetXProtectStatus() bool {
