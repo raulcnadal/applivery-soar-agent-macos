@@ -19,7 +19,7 @@ LaunchDaemon (root).
 You don't need to build this yourself, and you don't need a GitHub token —
 the compiled `.pkg` is downloadable straight from your SOAR instance:
 
-**Settings → Device Data Webhook → Applivery SOAR Agent**, click **Download**
+**Settings → Applivery SOAR Agent**, click **Download**
 next to macOS. This app's own CI publishes a fresh universal `.pkg` there on
 every push to `main`, mirrored into the SOAR backend itself (no GitHub
 authentication needed, same as pulling a public Docker image). The same
@@ -126,14 +126,14 @@ cycle and reports nothing.
 | `base_url` | String | `https://soar.mi-labs.es` | Base URL used for reporting (report, report-apps, custom-checks, agent-status) AND certificate renewal. Once a workspace uses mTLS, this must point at the dedicated agent subdomain (Settings → mTLS Agent Authentication → Reverse Proxy Configuration) — renewal always requires a valid client certificate, so it must go through that vhost. |
 | `register_url` | String | *(none — optional, falls back to `base_url`)* | Base URL used ONLY for the one-time `/api/device-mtls/register` call. `/register` never presents a client cert (the bootstrap token is the credential), so it doesn't need the mTLS vhost's health at all — setting this to the ordinary dashboard domain decouples first-time enrollment from whether that vhost happens to be up. Leave unset for the historical single-URL behavior. |
 | `workspace_slug` | String | *(none — required)* | Your workspace identifier. |
-| `report_secret` | String | *(none — optional)* | Device-report webhook secret (Settings → Device Data Webhook → Generate webhook secret). Either this or `bootstrap_token` must be set — an mTLS-only deployment (only `bootstrap_token` set) is fully supported. |
+| `report_secret` | String | *(none — optional)* | Device-report webhook secret (Settings → Applivery SOAR Agent → Generate webhook secret). Either this or `bootstrap_token` must be set — an mTLS-only deployment (only `bootstrap_token` set) is fully supported. |
 | `bootstrap_token` | String | *(none — optional)* | The workspace's Global Bootstrap Token (Settings → mTLS Agent Authentication → Generate). The SAME value is pushed to every device in the fleet — see [mTLS Agent Authentication](#mtls-agent-authentication) below. Safe to leave unset if your workspace hasn't enabled mTLS yet. |
 | `interval_sec` | Integer | `3600` | Reporting interval in seconds (values under 30 fall back to the default). |
 | `report_filevault` | Boolean | `true` | Include FileVault disk-encryption status. |
 | `report_firewall` | Boolean | `true` | Include Application Firewall status. |
 | `report_apps` | Boolean | `false` | Include the full installed-application inventory. |
 
-Settings → Device Data Webhook generates a ready-to-deploy `.json` file with
+Settings → Applivery SOAR Agent generates a ready-to-deploy `.json` file with
 all of these pre-filled for your workspace (including `bootstrap_token`, if
 one is configured) — you shouldn't need to type any of this by hand.
 
@@ -487,7 +487,7 @@ rolling `latest` GitHub Release.
 
 1. **Upload** `Applivery-SOAR-Agent.pkg` to your MDM as a package/PKG app.
 2. **Push Managed Configuration** — deploy the `.json` file from Settings →
-   Device Data Webhook to `/Library/Preferences/es.mi-labs.soar.agent.json`
+   Applivery SOAR Agent to `/Library/Preferences/es.mi-labs.soar.agent.json`
    via your MDM's Custom Settings mechanism.
 3. **Assign** the package and configuration profile to your target device
    groups. The package's postinstall script sets root ownership/permissions

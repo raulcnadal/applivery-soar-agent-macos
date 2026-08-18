@@ -96,6 +96,13 @@ jobs:
           cp "$BIN" "$APP/Contents/MacOS/AppliverySOARMenuBar"
           cp MenuBarApp/Info.plist "$APP/Contents/Info.plist"
 
+          # App icon — Info.plist's CFBundleIconFile points at "AppIcon",
+          # which resolves to this file once it's sitting directly in
+          # Contents/Resources (NOT inside the SPM resource .bundle copied
+          # below — CFBundleIconFile is only ever looked up at the top
+          # level of Contents/Resources). Source/rationale: assets/app-icon.svg.
+          cp MenuBarApp/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
+
           # Bundled Outfit fonts (SPM's .copy("Resources/Fonts") resource
           # rule preserves the Fonts/ subdirectory inside the generated
           # resource bundle — FontLoader.swift looks them up via
@@ -190,7 +197,7 @@ jobs:
       # download endpoint (POST /api/internal/agent-builds/macos) — same
       # mechanism and reasoning as the Windows agent repo's own build.yml
       # ("Publish x64 MSI to SOAR backend" step): lets a customer download
-      # the agent from Settings > Device Data Webhook with no GitHub token,
+      # the agent from Settings > Applivery SOAR Agent with no GitHub token,
       # same idea as this app's own public Docker images. Requires the
       # SOAR_AGENT_BUILD_SECRET repo secret, matching AGENT_BUILD_INGEST_SECRET
       # on the backend deployment. Runs on push to main only.
@@ -214,7 +221,7 @@ jobs:
       # Rolling "latest" GitHub Release, same tag reused on every push to
       # main — same pattern as applivery-soar's own docker-publish.yml
       # :latest tag, and the Windows agent repo's build.yml. This repo is
-      # private, so the migrated SOAR app's Settings > Device Data Webhook
+      # private, so the migrated SOAR app's Settings > Applivery SOAR Agent
       # page proxies this release's asset through its own backend (needs a
       # read-scoped GitHub token, configured there) rather than linking to
       # github.com directly. PR builds only run the steps above (artifact

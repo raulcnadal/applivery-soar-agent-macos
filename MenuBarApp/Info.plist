@@ -10,6 +10,18 @@
 	<string>Applivery SOAR</string>
 	<key>CFBundleDisplayName</key>
 	<string>Applivery SOAR</string>
+	<!-- AppIcon.icns (next to this file, copied into Contents/Resources by
+	     build-pkg.yml — see that step's own comment) — without this key the
+	     app has no icon resource at all, which is exactly why Notification
+	     Center rendered a generic blank circle instead of a real icon next
+	     to Force report/Force evaluate's banners (the Windows tray, by
+	     contrast, always passed an explicit hIcon to its balloon calls).
+	     Same shield-checkmark glyph as the Windows Agent's tray icon and
+	     the NSStatusItem's own SF Symbol, so this fixes the notification
+	     icon and gives Finder/Spotlight/the Dock (if ever shown) a real
+	     icon for free. -->
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
