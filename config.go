@@ -15,7 +15,7 @@ type Config struct {
 	WorkspaceSlug   string `json:"workspace_slug"`
 	ReportSecret    string `json:"report_secret"`
 	IntervalSec     int    `json:"interval_sec"`
-	ReportBitLocker bool   `json:"report_bitlocker"`
+	ReportFileVault bool   `json:"report_filevault"`
 	ReportFirewall  bool   `json:"report_firewall"`
 	ReportApps      bool   `json:"report_apps"`
 	// BootstrapToken — mTLS agent authentication (see mtls_macos.go and
@@ -90,7 +90,7 @@ func loadConfigQuiet() (Config, bool) {
 		WorkspaceSlug:   "",
 		ReportSecret:    "",
 		IntervalSec:     3600,
-		ReportBitLocker: true,
+		ReportFileVault: true,
 		ReportFirewall:  true,
 		ReportApps:      false,
 	}
@@ -116,8 +116,8 @@ func LoadConfig() Config {
 	}
 
 	log.Printf(
-		"Config loaded: BaseURL=%s RegisterURL=%s WorkspaceSlug=%s ReportSecret=%s BootstrapToken=%s ReportBitLocker=%v ReportFirewall=%v ReportApps=%v IntervalSec=%d",
-		cfg.BaseURL, maskEmpty(cfg.RegisterURL), maskEmpty(cfg.WorkspaceSlug), maskSecret(cfg.ReportSecret), maskSecret(cfg.BootstrapToken), cfg.ReportBitLocker, cfg.ReportFirewall, cfg.ReportApps, cfg.IntervalSec,
+		"Config loaded: BaseURL=%s RegisterURL=%s WorkspaceSlug=%s ReportSecret=%s BootstrapToken=%s ReportFileVault=%v ReportFirewall=%v ReportApps=%v IntervalSec=%d",
+		cfg.BaseURL, maskEmpty(cfg.RegisterURL), maskEmpty(cfg.WorkspaceSlug), maskSecret(cfg.ReportSecret), maskSecret(cfg.BootstrapToken), cfg.ReportFileVault, cfg.ReportFirewall, cfg.ReportApps, cfg.IntervalSec,
 	)
 
 	return cfg

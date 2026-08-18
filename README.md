@@ -129,7 +129,7 @@ cycle and reports nothing.
 | `report_secret` | String | *(none — optional)* | Device-report webhook secret (Settings → Device Data Webhook → Generate webhook secret). Either this or `bootstrap_token` must be set — an mTLS-only deployment (only `bootstrap_token` set) is fully supported. |
 | `bootstrap_token` | String | *(none — optional)* | The workspace's Global Bootstrap Token (Settings → mTLS Agent Authentication → Generate). The SAME value is pushed to every device in the fleet — see [mTLS Agent Authentication](#mtls-agent-authentication) below. Safe to leave unset if your workspace hasn't enabled mTLS yet. |
 | `interval_sec` | Integer | `3600` | Reporting interval in seconds (values under 30 fall back to the default). |
-| `report_bitlocker` | Boolean | `true` | Include FileVault disk-encryption status. (Same JSON key name as the Windows agent's BitLocker toggle, for a shared Managed Configuration template — on macOS it controls FileVault.) |
+| `report_filevault` | Boolean | `true` | Include FileVault disk-encryption status. |
 | `report_firewall` | Boolean | `true` | Include Application Firewall status. |
 | `report_apps` | Boolean | `false` | Include the full installed-application inventory. |
 
@@ -146,7 +146,7 @@ one is configured) — you shouldn't need to type any of this by hand.
   "report_secret": "<generated in Settings>",
   "bootstrap_token": "<optional — Settings → mTLS Agent Authentication>",
   "interval_sec": 3600,
-  "report_bitlocker": true,
+  "report_filevault": true,
   "report_firewall": true,
   "report_apps": true
 }
@@ -307,7 +307,7 @@ shell scripts:
 
 1. **Device identity** — hardware serial via `ioreg -c IOPlatformExpertDevice`.
 2. **OS build** — `sw_vers -buildVersion`.
-3. **FileVault status** (when `report_bitlocker=true`) — `fdesetup status`.
+3. **FileVault status** (when `report_filevault=true`) — `fdesetup status`.
 4. **Firewall status** (when `report_firewall=true`) — Application Firewall global state.
 5. **XProtect** — always reported `true` (XProtect ships enabled by default on all supported macOS versions; this agent doesn't attempt to detect tampering).
 6. **Secure Token / Screen Lock** — resolved against whoever's actually logged in at the console (`stat -f%Su /dev/console`, excluding `root`/empty); a machine with nobody logged in at the console reports both as unknown/false rather than guessed, since these are per-user settings, not machine-wide.
@@ -505,7 +505,7 @@ sudo tee /Library/Preferences/es.mi-labs.soar.agent.json > /dev/null <<'EOF'
   "workspace_slug": "your-workspace",
   "report_secret": "<generated in Settings>",
   "interval_sec": 3600,
-  "report_bitlocker": true,
+  "report_filevault": true,
   "report_firewall": true,
   "report_apps": true
 }

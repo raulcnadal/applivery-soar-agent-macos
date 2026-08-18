@@ -47,10 +47,20 @@ final class StatusPanel: NSPanel {
         hasShadow = true
         isMovable = false
         hidesOnDeactivate = false
-        // .popUpMenu keeps this above normal windows (including another
-        // app's full-screen window, matching the old LSUIElement/full-screen
-        // support note) without going as far as .screenSaver/.statusBar.
-        level = .popUpMenu
+        // .floating (NOT .popUpMenu, which this used until a real-device
+        // report showed Force report/Force evaluate's notification banners
+        // rendering BEHIND this panel whenever it was open — .popUpMenu's
+        // level (101) sits above the level macOS's own Notification Center
+        // banners render at, so an open panel occluded them instead of the
+        // banner appearing on top like every other app's notifications do).
+        // .floating (3) plus fullScreenAuxiliary below is Apple's own
+        // documented combination for an auxiliary panel that still needs to
+        // stay above another app's full-screen window (the original
+        // motivation for .popUpMenu) — fullScreenAuxiliary is what actually
+        // grants the full-screen-space visibility, not the raw level value,
+        // so dropping to .floating loses nothing there while no longer
+        // outranking the notification banner's own window.
+        level = .floating
         collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary]
 
         // NSVisualEffectView is what gives this the same translucent/

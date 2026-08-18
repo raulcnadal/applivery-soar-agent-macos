@@ -263,7 +263,7 @@ func updateStatusCache(baseURL *url.URL, config Config, serialNumber string, att
 		SerialNumber:      serialNumber,
 		LastReportAt:      time.Now().UTC().Format(time.RFC3339),
 		LastReportOK:      reportOK,
-		ReportedFileVault: config.ReportBitLocker,
+		ReportedFileVault: config.ReportFileVault,
 		ReportedFirewall:  config.ReportFirewall,
 		ReportedApps:      config.ReportApps,
 	}

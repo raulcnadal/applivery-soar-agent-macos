@@ -183,7 +183,7 @@ func GetUptimeDays() int {
 func GatherSecurityAttributes(config Config) map[string]interface{} {
 	attributes := make(map[string]interface{})
 
-	if config.ReportBitLocker {
+	if config.ReportFileVault {
 		attributes["FileVaultEnabled"] = GetFileVaultStatus()
 	}
 	if config.ReportFirewall {
