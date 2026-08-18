@@ -27,7 +27,23 @@ struct AgentStatusViolation: Codable {
 struct AgentStatusCompliance: Codable {
     var available: Bool = false
     var reason: String?
-    var compliant: Bool = false
+    // Optional, NOT `Bool = false`, even though the Go side's zero value is
+    // also false -- this file's own doc comment says Optional here mirrors
+    // the Go side's `omitempty`, and Compliant bool (tagged
+    // json:"compliant,omitempty" in agentstatus_macos.go) IS omitempty. A
+    // non-optional property in a Swift Codable type is decoded via
+    // decode(_:forKey:), not
+    // decodeIfPresent -- it does NOT fall back to its declared default value
+    // when the key is simply absent, it throws DecodingError.keyNotFound,
+    // which fails the ENTIRE decode (StatusCacheStore.read() catches that
+    // with `try?` and returns nil). Since omitempty omits `compliant` for
+    // its own zero value (false), that was every non-compliant device's
+    // status.json -- decoding always failed for exactly the devices an
+    // admin would most want to see, silently falling back to the "Waiting
+    // for the first report" empty state instead of the real violation data
+    // (confirmed live: status.json on disk was fully correct and fresh,
+    // menu bar still showed the empty state even after a full reboot).
+    var compliant: Bool?
     var riskScore: Int?
     var riskTier: String?
     var policies: [AgentStatusPolicy] = []

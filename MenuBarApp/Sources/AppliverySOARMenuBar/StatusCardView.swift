@@ -83,7 +83,7 @@ struct StatusCardView: View {
         let compliance = cache.compliance
         if !compliance.available {
             pill(text: "Unavailable", color: AppColor.gray400)
-        } else if compliance.compliant {
+        } else if compliance.compliant == true {
             pill(text: "Compliant", color: AppColor.success)
         } else {
             let count = compliance.violations?.count ?? 0
