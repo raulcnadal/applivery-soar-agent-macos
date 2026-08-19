@@ -23,6 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     private var hostingView: NSHostingView<AnyView>?
     private let store = StatusStore()
     private var outsideClickMonitor: Any?
+    private var appearanceObservation: NSKeyValueObservation?
 
     // Initial-measurement height only, tall enough that no content clips
     // during the fitting-size pass in openPanel below — not the height the
@@ -49,21 +50,24 @@ final class AppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCent
     func applicationWillTerminate(_ notification: Foundation.Notification) {
         store.stop()
         stopOutsideClickMonitor()
+        appearanceObservation?.invalidate()
     }
 
     private func setUpStatusItem() {
         let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        // A plain SF Symbol stands in for a dedicated menu-bar glyph for
-        // now — isTemplate lets AppKit auto-invert it for light/dark menu
-        // bars, same visual behavior the Windows tray gets "for free" from
-        // Shell_NotifyIconW's own icon handling. A custom Applivery mark can
-        // replace this without touching any other file once one exists.
-        let image = NSImage(systemSymbolName: "checkmark.shield", accessibilityDescription: "Applivery SOAR")
-        image?.isTemplate = true
-        item.button?.image = image
+        item.button?.image = MenuBarIcon.image(for: NSApp.effectiveAppearance)
+        item.button?.imageScaling = .scaleProportionallyDown
         item.button?.target = self
         item.button?.action = #selector(togglePanel(_:))
         statusItem = item
+
+        // MenuBarIcon ships pre-baked light/dark designs rather than a
+        // single isTemplate glyph AppKit can auto-invert, so this
+        // observation is what keeps the visible icon in sync when the user
+        // toggles system Dark Mode while the app is already running.
+        appearanceObservation = NSApp.observe(\.effectiveAppearance) { [weak self] app, _ in
+            self?.statusItem?.button?.image = MenuBarIcon.image(for: app.effectiveAppearance)
+        }
     }
 
     private func setUpPanel() {
