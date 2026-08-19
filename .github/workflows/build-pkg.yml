@@ -145,7 +145,19 @@ jobs:
           chown root:wheel /Library/LaunchDaemons/es.mi-labs.soar.agent.plist
           chmod 644 /Library/LaunchDaemons/es.mi-labs.soar.agent.plist
 
-          # Load and start the service immediately via launchctl
+          # Load and start the service immediately via launchctl. Same
+          # upgrade gap as the menu bar LaunchAgent below: on a FRESH
+          # install the job isn't loaded yet, so bootstrap/load actually
+          # starts it — but on an UPGRADE it's already loaded from the
+          # previous install, so bootstrap/load silently no-ops against the
+          # still-running OLD daemon process, and the new
+          # /usr/local/bin/applivery-soar-agent binary just copied in above
+          # wouldn't actually run until the next reboot. kickstart -k
+          # force-restarts an already-loaded job (kill + relaunch,
+          # atomically) and is tried first; bootstrap/load remain the
+          # fallback for a genuinely fresh install where kickstart has
+          # nothing to restart yet.
+          launchctl kickstart -k system/es.mi-labs.soar.agent 2>/dev/null || \
           launchctl bootstrap system /Library/LaunchDaemons/es.mi-labs.soar.agent.plist 2>/dev/null || \
           launchctl load -w /Library/LaunchDaemons/es.mi-labs.soar.agent.plist
 
