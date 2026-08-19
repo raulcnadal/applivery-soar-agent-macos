@@ -169,9 +169,23 @@ jobs:
           # session right now. Mirrors the Windows agent's own installer
           # immediately re-firing the tray's Scheduled Task rather than
           # waiting for the next logon.
+          # On a FRESH install the job isn't loaded yet, so bootstrap/load
+          # is what actually starts it. On an UPGRADE it's already loaded
+          # from a previous install, so bootstrap/load silently no-ops
+          # against the still-running OLD process — the new binary just
+          # copied into the .app bundle wouldn't take effect until the user
+          # happens to log out and back in. `launchctl kickstart -k`
+          # force-restarts an already-loaded job (kill + relaunch, in one
+          # atomic launchd call), which is what actually picks up the new
+          # binary immediately; it's tried first and only falls through to
+          # bootstrap/load if the job isn't loaded at all yet. Mirrors the
+          # Windows agent's own StopTrayProcess + RestartTrayTask pair in
+          # agent.wxs (same problem, same fix, different OS's service
+          # manager).
           CONSOLE_USER=$(stat -f%Su /dev/console 2>/dev/null)
           CONSOLE_UID=$(stat -f%u /dev/console 2>/dev/null)
           if [ -n "$CONSOLE_USER" ] && [ "$CONSOLE_USER" != "root" ] && [ -n "$CONSOLE_UID" ]; then
+            launchctl asuser "$CONSOLE_UID" launchctl kickstart -k "gui/$CONSOLE_UID/es.mi-labs.soar.menubar" 2>/dev/null || \
             launchctl asuser "$CONSOLE_UID" launchctl bootstrap "gui/$CONSOLE_UID" /Library/LaunchAgents/es.mi-labs.soar.menubar.plist 2>/dev/null || \
             launchctl asuser "$CONSOLE_UID" launchctl load -w /Library/LaunchAgents/es.mi-labs.soar.menubar.plist 2>/dev/null || true
           fi
