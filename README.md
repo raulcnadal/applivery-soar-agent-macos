@@ -96,7 +96,7 @@ second supervisor process here, and no plan to add one:
   `launchctl bootstrap`. `KeepAlive` protects against the daemon dying on
   its own; it was never going to protect against someone with root
   deliberately telling `launchd` to stop supervising it, on either platform.
-* **The menu bar app (Phase 3) now exists and gets the same treatment:** its
+* **The menu bar app gets the same treatment:** its
   own LaunchAgent plist (`es.mi-labs.soar.menubar.plist`) sets `KeepAlive`/
   `ThrottleInterval` identically to this daemon's own plist — see [Menu Bar
   App](#menu-bar-app) below for the full design.
@@ -157,13 +157,10 @@ one is configured) — you shouldn't need to type any of this by hand.
 ## mTLS Agent Authentication
 
 The agent can authenticate to SOAR with a per-device client certificate
-instead of the shared `report_secret` — see
-`backend/docs/mtls-agent-auth-roadmap.md` and
-`backend/docs/macos-agent-parity-roadmap.md` §1 (main SOAR repo) for the
-full design. This is opt-in per workspace; nothing changes for a device
-that never receives a `bootstrap_token`. Client logic and endpoints are
-identical to the Windows agent's own mTLS support — only the keystore
-location differs.
+instead of the shared `report_secret`. This is opt-in per workspace;
+nothing changes for a device that never receives a `bootstrap_token`.
+Client logic and endpoints are identical to the Windows agent's own mTLS
+support — only the keystore location differs.
 
 Registration uses a single **Global Bootstrap Token**: one value, the SAME
 on every device in the fleet, pushed via one Managed Configuration policy —
@@ -185,10 +182,9 @@ register.
    directory, `0600` files) — since this agent already runs as root via
    LaunchDaemon, plain Unix permissions already are the access-control
    boundary here, no separate ACL tool needed (unlike Windows, which shells
-   out to `icacls` to achieve the same restriction). This is a v1
-   file-based keystore, not the real macOS Keychain — see the roadmap doc's
-   disclosed-gap callout for why that's a deliberate, not accidental,
-   simplification. A device that already has an active certificate can
+   out to `icacls` to achieve the same restriction). This is a file-based
+   keystore, not the real macOS Keychain — a deliberate simplification, not
+   an oversight. A device that already has an active certificate can
    never be silently re-registered this way — the backend rejects it — so
    leaving `bootstrap_token` in place after enrollment is harmless.
 2. **Every report cycle afterward:** if a valid certificate is loaded, ALL
@@ -291,11 +287,10 @@ next login otherwise.
 
 **Signing status:** CI ad-hoc signs the wrapped `.app` (`codesign --sign -`)
 — enough to launch on the same class of machine that built it, but not real
-Developer ID signing or notarization. That's deferred to Phase 0 of
-`backend/docs/macos-agent-parity-roadmap.md` (Applivery's own Developer
-account team), same as the daemon binary's own signing status — this repo
-has never shipped a Developer-ID-signed artifact yet, Phase 3 doesn't change
-that.
+Developer ID signing or notarization. That's pending Applivery's own
+Developer account team setting up a real signing pipeline, same as the
+daemon binary's own signing status — this repo has never shipped a
+Developer-ID-signed artifact yet.
 
 ---
 
@@ -403,7 +398,7 @@ SOAR-pushed `remoteIntervalSec`, letting an admin safely relax this device's
 own `interval_sec` (e.g. from 1h to 4h) once event-driven watches are
 confirmed catching what matters — the agent's report ticker hot-resets to
 match on the very next cycle, no restart needed (same mechanism the Windows
-agent's own Phase 4 work introduced).
+agent uses).
 
 ---
 
