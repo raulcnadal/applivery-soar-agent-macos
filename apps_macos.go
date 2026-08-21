@@ -15,6 +15,17 @@ type InstalledApp struct {
 	Identifier string `json:"identifier"`
 	Name       string `json:"name"`
 	Version    string `json:"version,omitempty"`
+	// SHA256 is the lowercase-hex SHA256 of the app bundle's main
+	// executable (Contents/MacOS/<CFBundleExecutable>), when that key was
+	// present in Info.plist and the file was readable. Feeds SOAR's Binary
+	// Integrity feature (backend/docs/settings.md#binary-integrity):
+	// VirusTotal file-reputation lookup to flag sideloaded/tampered
+	// binaries, independent of CVE/version-based vulnerability matching.
+	// Self-reported only — Applivery's own server-fetched app inventory has
+	// no equivalent field. Omitted (empty) rather than defaulted whenever
+	// CFBundleExecutable is missing or the executable couldn't be read —
+	// see hashExecutableCached's doc comment (apphashcache_macos.go).
+	SHA256 string `json:"sha256,omitempty"`
 }
 
 type AppsPayload struct {
@@ -58,7 +69,7 @@ func GetInstalledApps() []InstalledApp {
 					continue
 				}
 
-				appInfo := parseInfoPlist(infoPlistPath, entry.Name())
+				appInfo := parseInfoPlist(infoPlistPath, entry.Name(), appPath)
 				if appInfo.Identifier != "" && !seen[appInfo.Identifier] {
 					seen[appInfo.Identifier] = true
 					apps = append(apps, appInfo)
@@ -67,10 +78,18 @@ func GetInstalledApps() []InstalledApp {
 		}
 	}
 
+	saveAppHashCache()
 	return apps
 }
 
-func parseInfoPlist(plistPath string, defaultFolderName string) InstalledApp {
+// parseInfoPlist reads appPath/Contents/Info.plist (already located by the
+// caller as plistPath) and, separately, attempts to hash the bundle's main
+// executable at appPath/Contents/MacOS/<CFBundleExecutable> — a bundle
+// missing CFBundleExecutable (rare, but happens for some plugin-style
+// bundles that got swept up by the ".app" directory scan) or with an
+// unreadable executable just yields an empty SHA256, same "best-effort
+// enrichment, never a hard failure" contract as everything else here.
+func parseInfoPlist(plistPath string, defaultFolderName string, appPath string) InstalledApp {
 	// Convert binary or XML plist to JSON using native macOS plutil utility
 	cmd := exec.Command("plutil", "-convert", "json", "-o", "-", plistPath)
 	out, err := cmd.Output()
@@ -107,9 +126,16 @@ func parseInfoPlist(plistPath string, defaultFolderName string) InstalledApp {
 		version, _ = plistData["CFBundleVersion"].(string)
 	}
 
+	var sha256Hash string
+	if executable, _ := plistData["CFBundleExecutable"].(string); strings.TrimSpace(executable) != "" {
+		exePath := filepath.Join(appPath, "Contents", "MacOS", strings.TrimSpace(executable))
+		sha256Hash = hashExecutableCached(exePath)
+	}
+
 	return InstalledApp{
 		Identifier: strings.TrimSpace(identifier),
 		Name:       strings.TrimSpace(name),
 		Version:    strings.TrimSpace(version),
+		SHA256:     sha256Hash,
 	}
 }

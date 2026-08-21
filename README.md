@@ -451,10 +451,17 @@ rather than wiping it.
   "platform": "macos",
   "serialNumber": "C02XYZ123ABC",
   "apps": [
-    { "identifier": "com.google.Chrome", "name": "Google Chrome", "version": "125.0.6422.113" }
+    {
+      "identifier": "com.google.Chrome",
+      "name": "Google Chrome",
+      "version": "125.0.6422.113",
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b85"
+    }
   ]
 }
 ```
+
+`sha256` is optional — the lowercase-hex SHA256 of the bundle's main executable (`Contents/MacOS/<CFBundleExecutable>`), when `CFBundleExecutable` was present in `Info.plist` and the file was readable. Cached locally (`apphashes.json`, next to `status.json` — see [ARCHITECTURE.md](ARCHITECTURE.md)) so a binary isn't re-hashed every cycle unless it changed. Feeds SOAR's Binary Integrity feature (`backend/docs/settings.md#binary-integrity`): a VirusTotal file-reputation lookup to flag sideloaded/tampered binaries, independent of CVE-based vulnerability matching.
 
 ---
 
